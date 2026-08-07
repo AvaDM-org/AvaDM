@@ -1,0 +1,10 @@
+bin/
+obj/
+/packages/
+riderModule.iml
+/_ReSharper.Caches/
+.idea
+[Bb]in
+[Oo]bj
+*.user
+/src/AvaDM.Console/test-dir
