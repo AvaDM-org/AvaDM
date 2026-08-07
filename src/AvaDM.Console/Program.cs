@@ -1,34 +1,28 @@
 ﻿// Interactive test harness for the AvaDM.Core download engine. Lets you drive one or more
 // downloads at once from the command line - start/pause/resume/speed/cancel - so pause and
-// speed-limit behavior (including multiple concurrent downloads) can be exercised live before
-// any UI exists. Progress is rendered in place (one row per download, redrawn where it stands)
-// rather than as a continuous stream of lines, so the prompt stays put and easy to type into.
+// speed-limit behavior (including multiple concurrent downloads, each its own file with its own
+// parallel chunks) can be exercised live before any UI exists. Rendered via Terminal.Gui: a
+// download list, a scrolling log, and a command line, all managed by the TUI's own event loop.
 
 using AvaDM.Console;
 using AvaDM.Core;
 
-var panel = new ConsoleStatusPanel();
-panel.Log("AvaDM Console - type 'help' for commands.");
+var dashboard = new DownloadDashboard();
 
 using var httpClient = new HttpClient { Timeout = Timeout.InfiniteTimeSpan };
 var pipeline = ChunkResiliencePipelineFactory.Create(
     onRetry: (attempt, delay, ex) =>
-        panel.Log($"Chunk request failed (attempt {attempt}), retrying in {delay.TotalSeconds:0.0}s: {ex?.Message}"));
+        dashboard.Log($"Chunk request failed (attempt {attempt}), retrying in {delay.TotalSeconds:0.0}s: {ex?.Message}"));
 var downloader = new Downloader(httpClient, pipeline);
 
 var handles = new Dictionary<string, DownloadHandle>();
 var nextId = 1;
 
-while (true)
+dashboard.CommandEntered += line =>
 {
-    var line = panel.ReadCommand();
-    if (line is null)
-        break;
-
-    // Named to avoid shadowing the top-level statements' implicit `args` (Main's argv).
     var parts = line.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
     if (parts.Length == 0)
-        continue;
+        return;
 
     var command = parts[0].ToLowerInvariant();
     try
@@ -65,22 +59,27 @@ while (true)
 
             case "quit":
             case "exit":
-                return;
+                dashboard.RequestQuit();
+                break;
 
             default:
-                panel.Log($"Unknown command '{command}'. Type 'help' for commands.");
+                dashboard.Log($"Unknown command '{command}'. Type 'help' for commands.");
                 break;
         }
     }
     catch (Exception ex)
     {
-        panel.Log($"Error: {ex.Message}");
+        dashboard.Log($"Error: {ex.Message}");
     }
-}
+};
+
+dashboard.Log("AvaDM Console - type 'help' for commands.");
+dashboard.Run();
+return;
 
 void PrintHelp()
 {
-    panel.Log("""
+    dashboard.Log("""
         Commands:
           start <url> [destPath] [chunkCount]   Start a download, prints its id (d1, d2, ...)
           pause <id>                            Pause a running download
@@ -96,7 +95,7 @@ void Start(string[] parts)
 {
     if (parts.Length < 2)
     {
-        panel.Log("Usage: start <url> [destPath] [chunkCount]");
+        dashboard.Log("Usage: start <url> [destPath] [chunkCount]");
         return;
     }
 
@@ -107,30 +106,30 @@ void Start(string[] parts)
     var id = $"d{nextId++}";
     var handle = downloader.StartDownload(uri, destPath, new DownloadOptions { ChunkCount = chunkCount });
     handles[id] = handle;
-    panel.Track(id);
+    dashboard.Track(id);
 
-    handle.ProgressChanged += (_, progress) => panel.UpdateProgress(id, progress);
-    handle.LogMessage += (_, message) => panel.Log($"[{id}] {message}");
-    // Fire-and-forget with error logging: the REPL keeps accepting commands for other
+    handle.ProgressChanged += (_, progress) => dashboard.UpdateProgress(id, progress);
+    handle.LogMessage += (_, message) => dashboard.Log($"[{id}] {message}");
+    // Fire-and-forget with error logging: the dashboard keeps accepting commands for other
     // downloads (or new ones) while this one runs in the background.
     _ = handle.Completion.ContinueWith(
-        t => panel.Log($"[{id}] failed: {t.Exception?.GetBaseException().Message}"),
+        t => dashboard.Log($"[{id}] failed: {t.Exception?.GetBaseException().Message}"),
         TaskContinuationOptions.OnlyOnFaulted);
 
-    panel.Log($"[{id}] started -> {destPath}");
+    dashboard.Log($"[{id}] started -> {destPath}");
 }
 
 void WithHandle(string[] parts, Action<DownloadHandle> action)
 {
     if (parts.Length < 2)
     {
-        panel.Log($"Usage: {parts[0]} <id>");
+        dashboard.Log($"Usage: {parts[0]} <id>");
         return;
     }
 
     if (!handles.TryGetValue(parts[1], out var handle))
     {
-        panel.Log($"No download with id '{parts[1]}'.");
+        dashboard.Log($"No download with id '{parts[1]}'.");
         return;
     }
 
@@ -141,38 +140,38 @@ void SetSpeed(string[] parts)
 {
     if (parts.Length < 3)
     {
-        panel.Log("Usage: speed <id> <bytesPerSec|off>");
+        dashboard.Log("Usage: speed <id> <bytesPerSec|off>");
         return;
     }
 
     if (!handles.TryGetValue(parts[1], out var handle))
     {
-        panel.Log($"No download with id '{parts[1]}'.");
+        dashboard.Log($"No download with id '{parts[1]}'.");
         return;
     }
 
     if (string.Equals(parts[2], "off", StringComparison.OrdinalIgnoreCase))
     {
         handle.SetSpeedLimit(null);
-        panel.Log($"[{parts[1]}] speed limit removed.");
+        dashboard.Log($"[{parts[1]}] speed limit removed.");
         return;
     }
 
     if (!long.TryParse(parts[2], out var bytesPerSecond) || bytesPerSecond <= 0)
     {
-        panel.Log("Speed must be a positive number of bytes/sec, or 'off'.");
+        dashboard.Log("Speed must be a positive number of bytes/sec, or 'off'.");
         return;
     }
 
     handle.SetSpeedLimit(bytesPerSecond);
-    panel.Log($"[{parts[1]}] speed limit set to {bytesPerSecond:N0} B/s.");
+    dashboard.Log($"[{parts[1]}] speed limit set to {bytesPerSecond:N0} B/s.");
 }
 
 void Status(string[] parts)
 {
     if (handles.Count == 0)
     {
-        panel.Log("No downloads yet.");
+        dashboard.Log("No downloads yet.");
         return;
     }
 
@@ -181,10 +180,10 @@ void Status(string[] parts)
     {
         if (!handles.TryGetValue(id, out var handle))
         {
-            panel.Log($"No download with id '{id}'.");
+            dashboard.Log($"No download with id '{id}'.");
             continue;
         }
 
-        panel.Log($"[{id}] {handle.State} {handle.BytesDownloaded:N0}/{handle.TotalBytes:N0} bytes ({handle.DestinationPath})");
+        dashboard.Log($"[{id}] {handle.State} {handle.BytesDownloaded:N0}/{handle.TotalBytes:N0} bytes ({handle.DestinationPath})");
     }
 }
