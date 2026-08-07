@@ -15,4 +15,8 @@
       <Folder Include="test-dir\" />
     </ItemGroup>
 
+    <ItemGroup>
+      <PackageReference Include="Terminal.Gui" Version="2.4.17" />
+    </ItemGroup>
+
 </Project>

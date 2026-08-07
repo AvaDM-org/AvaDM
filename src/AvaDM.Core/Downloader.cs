@@ -64,7 +64,7 @@ public class Downloader
             // No Range support -> can't split into concurrent chunks, and a failed attempt
             // can't resume from where it left off (the server won't honor Range on retry
             // either), so the whole file is re-requested from scratch on each retry.
-            Console.WriteLine("Server does not support range requests; falling back to a single sequential download.");
+            handle.Log("Server does not support range requests; falling back to a single sequential download.");
             await DownloadWholeFileAsync(fileHandle, uri, totalSize, handle, cancellationToken);
             return;
         }
@@ -78,8 +78,7 @@ public class Downloader
             long start = i * bytesPerChunk;
             long end = (i == chunkCount - 1) ? totalSize - 1 : start + bytesPerChunk - 1;
 
-            Console.WriteLine("Downloading chunk {0} ({1}-{2})...", i, start, end);
-            chunkTasks[i] = DownloadChunkAsync(fileHandle, uri, i, start, end, handle, cancellationToken);
+            chunkTasks[i] = DownloadChunkAsync(fileHandle, uri, start, end, handle, cancellationToken);
         }
 
         // Chunks write to disjoint byte ranges of the same file handle concurrently - safe
@@ -93,7 +92,6 @@ public class Downloader
     private async Task DownloadChunkAsync(
         SafeFileHandle fileHandle,
         Uri uri,
-        int chunkIndex,
         long start,
         long end,
         DownloadHandle handle,
@@ -136,8 +134,6 @@ public class Downloader
                 ArrayPool<byte>.Shared.Return(buffer);
             }
         }, cancellationToken);
-
-        Console.WriteLine("Chunk {0} complete.", chunkIndex);
     }
 
     private async Task DownloadWholeFileAsync(
@@ -183,6 +179,6 @@ public class Downloader
             }
         }, cancellationToken);
 
-        Console.WriteLine("Download complete ({0} bytes).", totalSize);
+        handle.Log($"Download complete ({totalSize} bytes).");
     }
 }

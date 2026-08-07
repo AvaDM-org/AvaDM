@@ -56,6 +56,11 @@ public sealed class DownloadHandle
 
     public event EventHandler<DownloadProgress>? ProgressChanged;
 
+    /// <summary>Fired for human-readable, non-progress notices (chunk retries, range-support
+    /// fallback, etc.) so a UI/console can surface them without the engine writing directly
+    /// to any output stream. Purely informational - never required for correctness.</summary>
+    public event EventHandler<string>? LogMessage;
+
     internal PauseTokenSource PauseTokenSource { get; }
     internal SpeedLimiter SpeedLimiter { get; }
     internal CancellationTokenSource CancellationTokenSource { get; }
@@ -117,6 +122,8 @@ public sealed class DownloadHandle
             ReportProgress(force: true);
         }
     }
+
+    internal void Log(string message) => LogMessage?.Invoke(this, message);
 
     internal void AddBytesDownloaded(int byteCount)
     {

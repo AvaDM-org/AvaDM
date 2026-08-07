@@ -16,7 +16,8 @@ public static class ChunkResiliencePipelineFactory
     public static ResiliencePipeline Create(
         int maxRetryAttempts = 5,
         TimeSpan? baseRetryDelay = null,
-        TimeSpan? perAttemptTimeout = null)
+        TimeSpan? perAttemptTimeout = null,
+        Action<int, TimeSpan, Exception?>? onRetry = null)
     {
         var delay = baseRetryDelay ?? TimeSpan.FromSeconds(1);
         // Bounds a single attempt (connect + this attempt's transfer), not the whole chunk.
@@ -38,11 +39,7 @@ public static class ChunkResiliencePipelineFactory
                 UseJitter = true,
                 OnRetry = args =>
                 {
-                    Console.WriteLine(
-                        "Chunk request failed (attempt {0}), retrying in {1:0.0}s: {2}",
-                        args.AttemptNumber + 1,
-                        args.RetryDelay.TotalSeconds,
-                        args.Outcome.Exception?.Message);
+                    onRetry?.Invoke(args.AttemptNumber + 1, args.RetryDelay, args.Outcome.Exception);
                     return default;
                 }
             })
