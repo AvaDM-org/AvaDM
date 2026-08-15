@@ -14,11 +14,34 @@ public enum DownloadState
 
 public record DownloadOptions
 {
-    public int ChunkCount { get; init; } = 5;
+    /// <summary>Number of concurrent Range-request chunks. <c>null</c> means use
+    /// <see cref="DownloadSettings.DefaultChunkCount"/>.</summary>
+    public int? ChunkCount { get; init; }
+
+    /// <summary>Speed limit in bytes per second. <c>null</c> means use
+    /// <see cref="DownloadSettings.DefaultSpeedLimitBytesPerSecond"/>.</summary>
     public long? InitialSpeedLimitBytesPerSecond { get; init; }
 }
 
 public record DownloadProgress(DownloadState State, long BytesDownloaded, long TotalBytes, double? SpeedBytesPerSecond);
+
+public enum ChunkStatus
+{
+    Pending,
+    Downloading,
+    Completed,
+    Failed
+}
+
+/// <summary>
+/// Point-in-time snapshot of one chunk's byte range and progress within a download. The
+/// whole-file fallback path (no Range support) is represented as a single chunk spanning the
+/// entire file, so a UI can render chunk progress uniformly regardless of which path ran.
+/// </summary>
+public sealed record ChunkProgress(int Index, long StartByte, long EndByte, long BytesDownloaded, ChunkStatus Status)
+{
+    public long TotalBytes => EndByte - StartByte + 1;
+}
 
 /// <summary>
 /// A live, controllable handle to one in-progress (or finished) download, returned by
@@ -34,6 +57,7 @@ public sealed class DownloadHandle
     private long _lastProgressReportTimestamp;
     private long _startTimestamp;
     private volatile DownloadState _state = DownloadState.Pending;
+    private volatile ChunkTracker[] _chunkTrackers = [];
 
     internal DownloadHandle(Uri uri, string destinationPath, DownloadOptions options)
     {
@@ -50,11 +74,30 @@ public sealed class DownloadHandle
     public long BytesDownloaded => Interlocked.Read(ref _bytesDownloaded);
     public DownloadState State => _state;
 
+    /// <summary>Snapshot of every chunk's byte range and progress, in chunk order. Empty until
+    /// the engine has determined how the file will be split (right after the HEAD request).</summary>
+    public IReadOnlyList<ChunkProgress> Chunks
+    {
+        get
+        {
+            var trackers = _chunkTrackers;
+            var snapshot = new ChunkProgress[trackers.Length];
+            for (var i = 0; i < trackers.Length; i++)
+                snapshot[i] = trackers[i].ToSnapshot(i);
+            return snapshot;
+        }
+    }
+
     /// <summary>Completes when the download finishes; faults with the original exception on
     /// failure (including <see cref="OperationCanceledException"/> on cancellation).</summary>
     public Task Completion { get; private set; } = Task.CompletedTask;
 
     public event EventHandler<DownloadProgress>? ProgressChanged;
+
+    /// <summary>Fired alongside <see cref="ProgressChanged"/> (same throttling) whenever chunk
+    /// layout or per-chunk progress changes, so a UI can render each chunk's own progress bar
+    /// in addition to the aggregate total.</summary>
+    public event EventHandler<IReadOnlyList<ChunkProgress>>? ChunksChanged;
 
     /// <summary>Fired for human-readable, non-progress notices (chunk retries, range-support
     /// fallback, etc.) so a UI/console can surface them without the engine writing directly
@@ -125,15 +168,37 @@ public sealed class DownloadHandle
 
     internal void Log(string message) => LogMessage?.Invoke(this, message);
 
-    internal void AddBytesDownloaded(int byteCount)
+    /// <summary>Establishes the chunk layout (index, byte range, initial Pending status) before
+    /// any chunk task starts writing. Called once per download - by <see cref="Downloader"/>
+    /// with one entry per concurrent Range chunk, or with a single whole-file entry when the
+    /// server doesn't support Range requests.</summary>
+    internal void InitializeChunks(IReadOnlyList<(long Start, long End)> ranges)
     {
+        var trackers = new ChunkTracker[ranges.Count];
+        for (var i = 0; i < ranges.Count; i++)
+            trackers[i] = new ChunkTracker(ranges[i].Start, ranges[i].End);
+        _chunkTrackers = trackers;
+        ReportProgress(force: true);
+    }
+
+    internal void SetChunkStatus(int chunkIndex, ChunkStatus status)
+    {
+        _chunkTrackers[chunkIndex].SetStatus(status);
+        ReportProgress(force: true);
+    }
+
+    /// <summary>Records bytes written for one chunk and folds them into the download's overall
+    /// total in a single call, so per-chunk and aggregate progress never drift apart.</summary>
+    internal void AddChunkBytesDownloaded(int chunkIndex, int byteCount)
+    {
+        _chunkTrackers[chunkIndex].AddBytes(byteCount);
         Interlocked.Add(ref _bytesDownloaded, byteCount);
         ReportProgress();
     }
 
     internal void ReportProgress(bool force = false)
     {
-        if (ProgressChanged is null)
+        if (ProgressChanged is null && ChunksChanged is null)
             return;
 
         var now = Stopwatch.GetTimestamp();
@@ -145,7 +210,8 @@ public sealed class DownloadHandle
         }
         Interlocked.Exchange(ref _lastProgressReportTimestamp, now);
 
-        ProgressChanged.Invoke(this, new DownloadProgress(State, BytesDownloaded, TotalBytes, ComputeAverageSpeed(now)));
+        ProgressChanged?.Invoke(this, new DownloadProgress(State, BytesDownloaded, TotalBytes, ComputeAverageSpeed(now)));
+        ChunksChanged?.Invoke(this, Chunks);
     }
 
     // Average throughput since the download started, not an instantaneous rate - simple and
@@ -154,5 +220,21 @@ public sealed class DownloadHandle
     {
         var elapsed = Stopwatch.GetElapsedTime(_startTimestamp, now);
         return elapsed.TotalSeconds > 0 ? BytesDownloaded / elapsed.TotalSeconds : null;
+    }
+
+    /// <summary>Mutable per-chunk state, updated concurrently by that chunk's own download task
+    /// (never by any other chunk's task). The byte range is fixed at construction; only bytes
+    /// downloaded and status change afterward, both via lock-free atomics so reading a snapshot
+    /// (<see cref="ToSnapshot"/>) never blocks the writer.</summary>
+    private sealed class ChunkTracker(long start, long end)
+    {
+        private long _bytesDownloaded;
+        private volatile int _status = (int)ChunkStatus.Pending;
+
+        public void AddBytes(int count) => Interlocked.Add(ref _bytesDownloaded, count);
+        public void SetStatus(ChunkStatus status) => _status = (int)status;
+
+        public ChunkProgress ToSnapshot(int index) =>
+            new(index, start, end, Interlocked.Read(ref _bytesDownloaded), (ChunkStatus)_status);
     }
 }

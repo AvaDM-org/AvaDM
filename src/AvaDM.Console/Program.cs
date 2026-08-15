@@ -13,7 +13,8 @@ using var httpClient = new HttpClient { Timeout = Timeout.InfiniteTimeSpan };
 var pipeline = ChunkResiliencePipelineFactory.Create(
     onRetry: (attempt, delay, ex) =>
         dashboard.Log($"Chunk request failed (attempt {attempt}), retrying in {delay.TotalSeconds:0.0}s: {ex?.Message}"));
-var downloader = new Downloader(httpClient, pipeline);
+var settings = new DownloadSettings();
+var downloader = new Downloader(httpClient, pipeline, settings);
 
 var handles = new Dictionary<string, DownloadHandle>();
 var nextId = 1;
@@ -49,6 +50,10 @@ dashboard.CommandEntered += line =>
                 SetSpeed(parts);
                 break;
 
+            case "setpath":
+                SetDefaultPath(parts);
+                break;
+
             case "status":
                 Status(parts);
                 break;
@@ -79,12 +84,17 @@ return;
 
 void PrintHelp()
 {
-    dashboard.Log("""
+    dashboard.Log($"""
         Commands:
           start <url> [destPath] [chunkCount]   Start a download, prints its id (d1, d2, ...)
+                                                 destPath may be omitted (uses the default
+                                                 download directory) or a directory (the
+                                                 filename is taken from the url)
           pause <id>                            Pause a running download
           resume <id>                           Resume a paused download
           speed <id> <bytesPerSec|off>          Set/clear the download's speed limit
+          setpath <dir>                         Set the default download directory
+                                                 (currently {settings.DefaultDownloadDirectory})
           status [id]                           Show progress for one or all downloads
           cancel <id>                            Cancel a download
           quit | exit                           Exit
@@ -100,8 +110,8 @@ void Start(string[] parts)
     }
 
     var uri = new Uri(parts[1]);
-    var destPath = parts.Length > 2 ? parts[2] : Path.Combine(Directory.GetCurrentDirectory(), Path.GetFileName(uri.LocalPath));
-    var chunkCount = parts.Length > 3 && int.TryParse(parts[3], out var parsed) ? parsed : 5;
+    var destPath = parts.Length > 2 ? parts[2] : null;
+    int? chunkCount = parts.Length > 3 && int.TryParse(parts[3], out var parsed) ? parsed : null;
 
     var id = $"d{nextId++}";
     var handle = downloader.StartDownload(uri, destPath, new DownloadOptions { ChunkCount = chunkCount });
@@ -109,6 +119,7 @@ void Start(string[] parts)
     dashboard.Track(id);
 
     handle.ProgressChanged += (_, progress) => dashboard.UpdateProgress(id, progress);
+    handle.ChunksChanged += (_, chunks) => dashboard.UpdateChunks(id, chunks);
     handle.LogMessage += (_, message) => dashboard.Log($"[{id}] {message}");
     // Fire-and-forget with error logging: the dashboard keeps accepting commands for other
     // downloads (or new ones) while this one runs in the background.
@@ -116,7 +127,21 @@ void Start(string[] parts)
         t => dashboard.Log($"[{id}] failed: {t.Exception?.GetBaseException().Message}"),
         TaskContinuationOptions.OnlyOnFaulted);
 
-    dashboard.Log($"[{id}] started -> {destPath}");
+    // handle.DestinationPath is the resolved path (Downloader fills in a default directory
+    // and/or a filename derived from the url when destPath was omitted or was a directory).
+    dashboard.Log($"[{id}] started -> {handle.DestinationPath}");
+}
+
+void SetDefaultPath(string[] parts)
+{
+    if (parts.Length < 2)
+    {
+        dashboard.Log($"Usage: setpath <dir>  (currently {settings.DefaultDownloadDirectory})");
+        return;
+    }
+
+    settings.DefaultDownloadDirectory = parts[1];
+    dashboard.Log($"Default download directory set to {parts[1]}.");
 }
 
 void WithHandle(string[] parts, Action<DownloadHandle> action)

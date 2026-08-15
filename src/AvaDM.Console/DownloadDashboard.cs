@@ -1,4 +1,3 @@
-using System.Collections.ObjectModel;
 using AvaDM.Core;
 using Terminal.Gui.App;
 using Terminal.Gui.Input;
@@ -8,9 +7,16 @@ using Terminal.Gui.Views;
 namespace AvaDM.Console;
 
 /// <summary>
-/// Terminal.Gui dashboard: one row per tracked download (each its own file, each with its own
-/// parallel chunks under the hood - the row just shows the aggregate progress Core reports), a
-/// scrolling log pane below it, and a command input line pinned to the bottom.
+/// Terminal.Gui dashboard: one block per tracked download (each its own file, each with its own
+/// parallel chunks under the hood), showing the aggregate progress Core reports plus one line
+/// per chunk with that chunk's own byte range and progress, a scrolling log pane below it, and
+/// a command input line pinned to the bottom.
+///
+/// The downloads pane is a plain read-only <see cref="TextView"/> rather than a <see cref="ListView"/>:
+/// each download contributes a variable number of rows (one header + one per chunk, and the
+/// chunk count isn't known until Core's HEAD request returns), which doesn't fit a ListView's
+/// fixed one-row-per-item model. Rebuilding the whole block of text on every update is simple
+/// and cheap enough at console-refresh rates.
 ///
 /// Replaces the old <c>ConsoleStatusPanel</c> hand-rolled cursor-positioning approach.
 /// Terminal.Gui owns the screen, layout, and redraw - there's no more manual row-count/width
@@ -28,10 +34,10 @@ internal sealed class DownloadDashboard
 {
     private readonly List<string> _order = [];
     private readonly Dictionary<string, DownloadProgress?> _latest = new();
-    private readonly ObservableCollection<string> _rows = [];
+    private readonly Dictionary<string, IReadOnlyList<ChunkProgress>> _chunks = new();
 
     private readonly IApplication _app;
-    private readonly ListView _downloadsList;
+    private readonly TextView _downloadsView;
     private readonly TextView _log;
     private readonly TextField _commandField;
     private readonly Window _window;
@@ -47,19 +53,19 @@ internal sealed class DownloadDashboard
         // class.
         _app = Application.Create().Init();
 
-        _downloadsList = new ListView
+        _downloadsView = new TextView
         {
             X = 0,
             Y = 0,
             Width = Dim.Fill(),
             Height = Dim.Percent(40),
+            ReadOnly = true,
         };
-        _downloadsList.SetSource(_rows);
 
         _log = new TextView
         {
             X = 0,
-            Y = Pos.Bottom(_downloadsList),
+            Y = Pos.Bottom(_downloadsView),
             Width = Dim.Fill(),
             Height = Dim.Fill(2), // leaves room for the prompt row below
             ReadOnly = true,
@@ -89,7 +95,7 @@ internal sealed class DownloadDashboard
         };
 
         _window = new Window { Title = "AvaDM" };
-        _window.Add(_downloadsList, _log, prompt, _commandField);
+        _window.Add(_downloadsView, _log, prompt, _commandField);
         _commandField.SetFocus();
     }
 
@@ -109,7 +115,8 @@ internal sealed class DownloadDashboard
         {
             _order.Add(id);
             _latest[id] = null;
-            _rows.Add(FormatLine(id, null)); // ObservableCollection.Add notifies the ListView directly
+            _chunks[id] = [];
+            RenderDownloadsLocked();
         });
     }
 
@@ -118,9 +125,19 @@ internal sealed class DownloadDashboard
         _app.Invoke(() =>
         {
             _latest[id] = progress;
-            var index = _order.IndexOf(id);
-            if (index >= 0)
-                _rows[index] = FormatLine(id, progress);
+            RenderDownloadsLocked();
+        });
+    }
+
+    /// <summary>Per-chunk counterpart to <see cref="UpdateProgress"/> - wire this to
+    /// <see cref="DownloadHandle.ChunksChanged"/> to show each chunk's own byte range and
+    /// progress under its download's header line.</summary>
+    public void UpdateChunks(string id, IReadOnlyList<ChunkProgress> chunks)
+    {
+        _app.Invoke(() =>
+        {
+            _chunks[id] = chunks;
+            RenderDownloadsLocked();
         });
     }
 
@@ -135,6 +152,22 @@ internal sealed class DownloadDashboard
         });
     }
 
+    // Must only be called on the Terminal.Gui main loop (i.e. from inside _app.Invoke) - it
+    // reads _order/_latest/_chunks without its own locking, relying on the main loop being
+    // single-threaded.
+    private void RenderDownloadsLocked()
+    {
+        var lines = new List<string>();
+        foreach (var id in _order)
+        {
+            lines.Add(FormatLine(id, _latest[id]));
+            foreach (var chunk in _chunks[id])
+                lines.Add(FormatChunkLine(chunk));
+        }
+
+        _downloadsView.Text = string.Join(Environment.NewLine, lines);
+    }
+
     private static string FormatLine(string id, DownloadProgress? progress)
     {
         if (progress is null)
@@ -142,5 +175,12 @@ internal sealed class DownloadDashboard
 
         var speed = progress.SpeedBytesPerSecond is { } s ? $"{s:N0} B/s" : "-";
         return $"[{id}] {progress.State,-10} {progress.BytesDownloaded:N0}/{progress.TotalBytes:N0} bytes @ {speed}";
+    }
+
+    private static string FormatChunkLine(ChunkProgress chunk)
+    {
+        var percent = chunk.TotalBytes > 0 ? chunk.BytesDownloaded * 100.0 / chunk.TotalBytes : 0.0;
+        return $"    chunk {chunk.Index,-3} {chunk.Status,-11} {chunk.BytesDownloaded:N0}/{chunk.TotalBytes:N0} bytes ({percent:0.0}%) " +
+               $"[{chunk.StartByte:N0}-{chunk.EndByte:N0}]";
     }
 }
