@@ -29,4 +29,24 @@ public sealed class DownloadSettings
     /// means no limit.
     /// </summary>
     public long? DefaultSpeedLimitBytesPerSecond { get; set; }
+
+    /// <summary>
+    /// Path to the SQLite download index. <c>null</c>/empty means use the platform default
+    /// (under <see cref="Environment.SpecialFolder.LocalApplicationData"/>) - see
+    /// <see cref="GetResolvedRepositoryPath"/>.
+    /// </summary>
+    public string? RepositoryPath { get; set; }
+
+    /// <summary>Resolves <see cref="RepositoryPath"/> to a concrete file path, creating the
+    /// containing directory if it doesn't exist yet. Called by <see cref="DownloadManager"/>
+    /// when it opens the repository.</summary>
+    public string GetResolvedRepositoryPath()
+    {
+        if (!string.IsNullOrWhiteSpace(RepositoryPath))
+            return RepositoryPath;
+
+        var dir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "AvaDM");
+        Directory.CreateDirectory(dir);
+        return Path.Combine(dir, "avadm.db");
+    }
 }

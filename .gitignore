@@ -7,4 +7,12 @@ riderModule.iml
 [Bb]in
 [Oo]bj
 *.user
+
+# SQLite databases and transient sidecar files
+*.sqlite
+*.sqlite3
+*.db
+*.db-wal
+*.db-shm
+
 /src/AvaDM.Console/test-dir

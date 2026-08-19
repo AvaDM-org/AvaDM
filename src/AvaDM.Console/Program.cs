@@ -14,9 +14,9 @@ var pipeline = ChunkResiliencePipelineFactory.Create(
     onRetry: (attempt, delay, ex) =>
         dashboard.Log($"Chunk request failed (attempt {attempt}), retrying in {delay.TotalSeconds:0.0}s: {ex?.Message}"));
 var settings = new DownloadSettings();
-var downloader = new Downloader(httpClient, pipeline, settings);
+var manager = new DownloadManager(httpClient, pipeline, settings);
 
-var handles = new Dictionary<string, DownloadHandle>();
+var handles = new Dictionary<string, (Guid Id, DownloadHandle Handle)>();
 var nextId = 1;
 
 dashboard.CommandEntered += line =>
@@ -88,8 +88,10 @@ void PrintHelp()
         Commands:
           start <url> [destPath] [chunkCount]   Start a download, prints its id (d1, d2, ...)
                                                  destPath may be omitted (uses the default
-                                                 download directory) or a directory (the
-                                                 filename is taken from the url)
+                                                 download directory), a directory - existing
+                                                 or not, e.g. "./tests" - (the filename is
+                                                 taken from the url), or a full file path
+                                                 with an extension (e.g. "./tests/out.exe")
           pause <id>                            Pause a running download
           resume <id>                           Resume a paused download
           speed <id> <bytesPerSec|off>          Set/clear the download's speed limit
@@ -101,21 +103,77 @@ void PrintHelp()
         """);
 }
 
-void Start(string[] parts)
+async void Start(string[] parts)
 {
     if (parts.Length < 2)
     {
-        dashboard.Log("Usage: start <url> [destPath] [chunkCount]");
+        dashboard.Log("Usage: start <url> [destPath] [chunkCount] [--resume|--overwrite|--rename <path>]");
         return;
     }
 
-    var uri = new Uri(parts[1]);
-    var destPath = parts.Length > 2 ? parts[2] : null;
-    int? chunkCount = parts.Length > 3 && int.TryParse(parts[3], out var parsed) ? parsed : null;
+    // Parse flags: scan all tokens and extract --resume/--overwrite/--rename, removing them before positional parsing
+    ConflictResolution? resolution = null;
+    var positionalParts = new List<string> { parts[0] }; // Keep "start"
 
+    for (var i = 1; i < parts.Length; i++)
+    {
+        if (parts[i].Equals("--resume", StringComparison.OrdinalIgnoreCase))
+        {
+            resolution = new ConflictResolution.Resume();
+        }
+        else if (parts[i].Equals("--overwrite", StringComparison.OrdinalIgnoreCase))
+        {
+            resolution = new ConflictResolution.Overwrite();
+        }
+        else if (parts[i].Equals("--rename", StringComparison.OrdinalIgnoreCase))
+        {
+            if (i + 1 >= parts.Length)
+            {
+                dashboard.Log("Error: --rename requires a destination path argument.");
+                return;
+            }
+            resolution = new ConflictResolution.RenameDestination(parts[i + 1]);
+            i++; // Skip the next token since we consumed it as the rename path
+        }
+        else
+        {
+            positionalParts.Add(parts[i]);
+        }
+    }
+
+    var posArray = positionalParts.ToArray();
+    if (posArray.Length < 2)
+    {
+        dashboard.Log("Usage: start <url> [destPath] [chunkCount] [--resume|--overwrite|--rename <path>]");
+        return;
+    }
+
+    var uri = new Uri(posArray[1]);
+    var destPath = posArray.Length > 2 ? posArray[2] : null;
+    int? chunkCount = posArray.Length > 3 && int.TryParse(posArray[3], out var parsed) ? parsed : null;
+
+    var result = await manager.AddDownloadAsync(uri, destPath, new DownloadOptions { ChunkCount = chunkCount }, resolution);
+
+    if (!result.Success)
+    {
+        if (result.Conflict?.HasConflict == true)
+        {
+            var existing = result.Conflict.ExistingRecord;
+            dashboard.Log(
+                $"Conflict: '{uri}' is already downloading to '{existing!.DestinationPath}' " +
+                $"(state: {existing.State}, {existing.BytesDownloaded:N0}/{existing.TotalBytes:N0} bytes). " +
+                $"Retry with --resume, --overwrite, or --rename <newPath>.");
+        }
+        else
+        {
+            dashboard.Log($"Error: {result.Error}");
+        }
+        return;
+    }
+
+    var handle = result.Handle!;
     var id = $"d{nextId++}";
-    var handle = downloader.StartDownload(uri, destPath, new DownloadOptions { ChunkCount = chunkCount });
-    handles[id] = handle;
+    handles[id] = (result.Id!.Value, handle);
     dashboard.Track(id);
 
     handle.ProgressChanged += (_, progress) => dashboard.UpdateProgress(id, progress);
@@ -127,8 +185,6 @@ void Start(string[] parts)
         t => dashboard.Log($"[{id}] failed: {t.Exception?.GetBaseException().Message}"),
         TaskContinuationOptions.OnlyOnFaulted);
 
-    // handle.DestinationPath is the resolved path (Downloader fills in a default directory
-    // and/or a filename derived from the url when destPath was omitted or was a directory).
     dashboard.Log($"[{id}] started -> {handle.DestinationPath}");
 }
 
@@ -152,13 +208,13 @@ void WithHandle(string[] parts, Action<DownloadHandle> action)
         return;
     }
 
-    if (!handles.TryGetValue(parts[1], out var handle))
+    if (!handles.TryGetValue(parts[1], out var entry))
     {
         dashboard.Log($"No download with id '{parts[1]}'.");
         return;
     }
 
-    action(handle);
+    action(entry.Handle);
 }
 
 void SetSpeed(string[] parts)
@@ -169,12 +225,13 @@ void SetSpeed(string[] parts)
         return;
     }
 
-    if (!handles.TryGetValue(parts[1], out var handle))
+    if (!handles.TryGetValue(parts[1], out var entry))
     {
         dashboard.Log($"No download with id '{parts[1]}'.");
         return;
     }
 
+    var handle = entry.Handle;
     if (string.Equals(parts[2], "off", StringComparison.OrdinalIgnoreCase))
     {
         handle.SetSpeedLimit(null);
@@ -203,12 +260,13 @@ void Status(string[] parts)
     var ids = parts.Length > 1 ? new[] { parts[1] } : handles.Keys.ToArray();
     foreach (var id in ids)
     {
-        if (!handles.TryGetValue(id, out var handle))
+        if (!handles.TryGetValue(id, out var entry))
         {
             dashboard.Log($"No download with id '{id}'.");
             continue;
         }
 
+        var handle = entry.Handle;
         dashboard.Log($"[{id}] {handle.State} {handle.BytesDownloaded:N0}/{handle.TotalBytes:N0} bytes ({handle.DestinationPath})");
     }
 }

@@ -1,4 +1,5 @@
 using System.Buffers;
+using System.Buffers.Binary;
 using System.Net.Http.Headers;
 using Microsoft.Win32.SafeHandles;
 using Polly;
@@ -11,20 +12,25 @@ namespace AvaDM.Core;
 /// produces an independent <see cref="DownloadHandle"/>, so one <see cref="Downloader"/> (and
 /// the <see cref="HttpClient"/>/pipeline it wraps) can safely drive any number of downloads at
 /// once, each internally running its own parallel chunks.
+///
+/// Every download writes to a <c>&lt;destination&gt;.avadm</c> working file: payload bytes at
+/// their natural <c>[0, TotalBytes)</c> offsets, followed by a self-describing binary footer
+/// (see <see cref="DownloadFooter"/>) that a later process can use to resume without any other
+/// state. A previous run's sidecar is detected and validated against a fresh HEAD before it's
+/// trusted; anything that doesn't check out falls back to starting over rather than throwing.
 /// </summary>
 public class Downloader
 {
     private const int BufferSize = 81920;
     private const string FallbackFileName = "download";
+    private const string WorkingFileSuffix = ".avadm";
+    private const int FooterLengthFieldSize = 8;
+    private static readonly TimeSpan FooterCheckpointInterval = TimeSpan.FromSeconds(5);
 
     private readonly HttpClient _client;
     private readonly ResiliencePipeline _pipeline;
     private readonly DownloadSettings _settings;
 
-    /// <summary>Creates a downloader. <paramref name="settings"/> is held by reference and read
-    /// on every <see cref="StartDownload"/> call to resolve paths and fill in
-    /// <see cref="DownloadOptions"/> defaults - callers (console, UI) mutate it directly to
-    /// change defaults for downloads started afterward.</summary>
     public Downloader(HttpClient client, ResiliencePipeline pipeline, DownloadSettings settings)
     {
         _client = client;
@@ -32,16 +38,6 @@ public class Downloader
         _settings = settings;
     }
 
-    /// <summary>Starts a download and returns immediately with a live handle. The download
-    /// itself runs in the background; await <c>handle.Completion</c> to wait for it.</summary>
-    /// <param name="destinationPath">Where to save the file. Pass <c>null</c>/empty to save
-    /// under <see cref="DownloadSettings.DefaultDownloadDirectory"/> using a filename derived
-    /// from the URL, or pass an existing directory (or a path ending in a directory separator)
-    /// to save under it with a filename derived from the URL. Anything else is used as the
-    /// exact file path.</param>
-    /// <param name="options">Per-download options. Any <c>null</c> field (e.g.
-    /// <see cref="DownloadOptions.ChunkCount"/>) is filled in from <see cref="DownloadSettings"/>
-    /// before the download starts.</param>
     public DownloadHandle StartDownload(Uri uri, string? destinationPath, DownloadOptions? options = null)
     {
         options ??= new DownloadOptions();
@@ -56,22 +52,33 @@ public class Downloader
         return handle;
     }
 
-    /// <summary>Turns a possibly-missing or possibly-directory-only destination into a concrete
-    /// file path. See <see cref="StartDownload"/> for the exact rules.</summary>
     internal string ResolveDestinationPath(Uri uri, string? destinationPath)
     {
         if (string.IsNullOrWhiteSpace(destinationPath))
             return Path.Combine(_settings.DefaultDownloadDirectory, FileNameFromUri(uri));
 
-        if (Directory.Exists(destinationPath) ||
-            destinationPath.EndsWith(Path.DirectorySeparatorChar) ||
-            destinationPath.EndsWith(Path.AltDirectorySeparatorChar))
-        {
+        if (LooksLikeDirectory(destinationPath))
             return Path.Combine(destinationPath, FileNameFromUri(uri));
-        }
 
         return destinationPath;
     }
+
+    /// <summary>Decides whether a caller-supplied destination means "put the URL's filename inside
+    /// this directory" rather than "this exact path is the file". True for a path that already
+    /// exists as a directory or ends in a separator (explicit either way), and also for a
+    /// not-yet-existing path with no file extension - e.g. <c>./tests</c> meant as a folder to be
+    /// created, which is the common case a caller runs into before the directory exists. A path
+    /// that already exists as a file (e.g. resuming into a previously finalized destination with
+    /// no extension) or a working <c>.avadm</c> sidecar for it is still treated as a literal file,
+    /// so an in-progress resume doesn't flip interpretation mid-download; an explicit extension
+    /// (as <c>--rename</c> targets typically have) is likewise always treated as a literal file.</summary>
+    private static bool LooksLikeDirectory(string path) =>
+        Directory.Exists(path) ||
+        path.EndsWith(Path.DirectorySeparatorChar) ||
+        path.EndsWith(Path.AltDirectorySeparatorChar) ||
+        (string.IsNullOrEmpty(Path.GetExtension(path)) &&
+         !File.Exists(path) &&
+         !File.Exists(path + WorkingFileSuffix));
 
     private static string FileNameFromUri(Uri uri)
     {
@@ -98,32 +105,84 @@ public class Downloader
         if (!string.IsNullOrEmpty(directory))
             Directory.CreateDirectory(directory);
 
-        using var fileHandle = File.OpenHandle(
-            destinationPath,
-            mode: FileMode.Create,
-            access: FileAccess.ReadWrite,
-            share: FileShare.ReadWrite,
-            options: FileOptions.Asynchronous,
-            preallocationSize: totalSize
-        );
+        var workingPath = destinationPath + WorkingFileSuffix;
 
         if (!supportsRanges)
         {
-            // No Range support -> can't split into concurrent chunks, and a failed attempt
-            // can't resume from where it left off (the server won't honor Range on retry
-            // either), so the whole file is re-requested from scratch on each retry. Modeled
-            // as a single chunk spanning the whole file so a UI sees a consistent chunk shape
-            // regardless of which path ran.
+            // A whole-file download re-requests the entire body from scratch on every attempt,
+            // so it can never resume - any prior .avadm for this destination is simply replaced.
             handle.Log("Server does not support range requests; falling back to a single sequential download.");
-            handle.InitializeChunks([(0, totalSize - 1)]);
-            await DownloadWholeFileAsync(fileHandle, uri, totalSize, handle, cancellationToken);
+            var footerSize = DownloadFooter.ComputeSize(uri, 1);
+            var fileHandle = OpenFreshWorkingFile(workingPath, totalSize + footerSize);
+            try
+            {
+                handle.InitializeChunks([(0, totalSize - 1)]);
+                await RunWithFooterCheckpointingAsync(
+                    fileHandle, uri, totalSize, resumable: false, handle,
+                    ct => DownloadWholeFileAsync(fileHandle, uri, totalSize, handle, ct),
+                    cancellationToken);
+            }
+            finally
+            {
+                fileHandle.Dispose();
+            }
+
+            await FinalizeAsync(workingPath, destinationPath, totalSize);
             return;
         }
 
-        // Non-null: StartDownload already merged this against DownloadSettings.DefaultChunkCount.
-        int chunkCount = options.ChunkCount!.Value;
-        long bytesPerChunk = totalSize / chunkCount;
+        var resumeFooter = await TryReadResumeFooterAsync(workingPath, uri, totalSize, handle, cancellationToken);
 
+        SafeFileHandle rangedFileHandle;
+        (long Start, long End)[] ranges;
+
+        if (resumeFooter is not null)
+        {
+            var candidateRanges = resumeFooter.Chunks.Select(c => (c.Start, c.End)).ToArray();
+            var footerSize = DownloadFooter.ComputeSize(uri, candidateRanges.Length);
+            var reopened = TryOpenResumableWorkingFile(workingPath, totalSize + footerSize, handle);
+            if (reopened is not null)
+            {
+                rangedFileHandle = reopened;
+                ranges = candidateRanges;
+                handle.InitializeChunksFromFooter(resumeFooter.Chunks);
+                var alreadyDownloaded = resumeFooter.Chunks.Sum(c => c.BytesDownloaded);
+                handle.Log($"Resuming '{destinationPath}': {alreadyDownloaded} of {totalSize} bytes already on disk.");
+            }
+            else
+            {
+                (rangedFileHandle, ranges) = OpenFreshChunkedWorkingFile(uri, workingPath, totalSize, options.ChunkCount!.Value);
+                handle.InitializeChunks(ranges);
+            }
+        }
+        else
+        {
+            (rangedFileHandle, ranges) = OpenFreshChunkedWorkingFile(uri, workingPath, totalSize, options.ChunkCount!.Value);
+            handle.InitializeChunks(ranges);
+        }
+
+        try
+        {
+            var chunkTasks = new Task[ranges.Length];
+            for (var i = 0; i < ranges.Length; i++)
+                chunkTasks[i] = DownloadChunkAsync(rangedFileHandle, uri, i, ranges[i].Start, ranges[i].End, handle, cancellationToken);
+
+            await RunWithFooterCheckpointingAsync(
+                rangedFileHandle, uri, totalSize, resumable: true, handle,
+                _ => Task.WhenAll(chunkTasks),
+                cancellationToken);
+        }
+        finally
+        {
+            rangedFileHandle.Dispose();
+        }
+
+        await FinalizeAsync(workingPath, destinationPath, totalSize);
+    }
+
+    private static (long Start, long End)[] ComputeRanges(long totalSize, int chunkCount)
+    {
+        long bytesPerChunk = totalSize / chunkCount;
         var ranges = new (long Start, long End)[chunkCount];
         for (var i = 0; i < chunkCount; i++)
         {
@@ -131,18 +190,173 @@ public class Downloader
             long end = (i == chunkCount - 1) ? totalSize - 1 : start + bytesPerChunk - 1;
             ranges[i] = (start, end);
         }
-        handle.InitializeChunks(ranges);
+        return ranges;
+    }
 
-        var chunkTasks = new Task[chunkCount];
-        for (var i = 0; i < chunkCount; i++)
-            chunkTasks[i] = DownloadChunkAsync(fileHandle, uri, i, ranges[i].Start, ranges[i].End, handle, cancellationToken);
+    private static (SafeFileHandle FileHandle, (long Start, long End)[] Ranges) OpenFreshChunkedWorkingFile(
+        Uri uri, string workingPath, long totalSize, int chunkCount)
+    {
+        var ranges = ComputeRanges(totalSize, chunkCount);
+        var footerSize = DownloadFooter.ComputeSize(uri, ranges.Length);
+        var fileHandle = OpenFreshWorkingFile(workingPath, totalSize + footerSize);
+        return (fileHandle, ranges);
+    }
 
-        // Chunks write to disjoint byte ranges of the same file handle concurrently - safe
-        // because RandomAccess.WriteAsync takes an explicit offset per call (no shared cursor).
-        // A chunk failure that survives its own retries propagates out here and fails the
-        // whole download - a chunk we can't recover must not be silently skipped, or the
-        // output file ends up with a silent hole in it.
-        await Task.WhenAll(chunkTasks);
+    /// <summary>Creates (or replaces) the working file at its final size - payload region plus
+    /// the footer that will be checkpointed after it. Used both for a first attempt and whenever
+    /// an existing <c>.avadm</c> turned out to be unusable for resume.</summary>
+    private static SafeFileHandle OpenFreshWorkingFile(string workingPath, long requiredLength)
+    {
+        return File.OpenHandle(
+            workingPath,
+            mode: FileMode.Create,
+            access: FileAccess.ReadWrite,
+            share: FileShare.ReadWrite,
+            options: FileOptions.Asynchronous,
+            preallocationSize: requiredLength);
+    }
+
+    /// <summary>Reopens an existing <c>.avadm</c> whose footer already passed validation, for
+    /// continued writing. Returns <c>null</c> (after logging and disposing) if the file's actual
+    /// length doesn't match what the footer implies - corruption we can detect cheaply without
+    /// reading the whole payload.</summary>
+    private static SafeFileHandle? TryOpenResumableWorkingFile(string workingPath, long requiredLength, DownloadHandle handle)
+    {
+        var fileHandle = File.OpenHandle(
+            workingPath,
+            mode: FileMode.Open,
+            access: FileAccess.ReadWrite,
+            share: FileShare.ReadWrite,
+            options: FileOptions.Asynchronous);
+
+        if (RandomAccess.GetLength(fileHandle) != requiredLength)
+        {
+            handle.Log("Existing resume data has an unexpected file size; starting this download over from scratch.");
+            fileHandle.Dispose();
+            return null;
+        }
+
+        return fileHandle;
+    }
+
+    /// <summary>Reads and validates a previous run's footer from <paramref name="workingPath"/>,
+    /// if one exists. Returns <c>null</c> (after logging) on any missing file, parse failure, or
+    /// mismatch against the fresh HEAD (<paramref name="totalSize"/>/<paramref name="uri"/>) or
+    /// a cleared resumable flag - callers treat that uniformly as "start fresh", never throw.</summary>
+    private static async Task<DownloadFooterData?> TryReadResumeFooterAsync(
+        string workingPath, Uri uri, long totalSize, DownloadHandle handle, CancellationToken cancellationToken)
+    {
+        if (!File.Exists(workingPath))
+            return null;
+
+        try
+        {
+            await using var stream = new FileStream(workingPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+            if (stream.Length < FooterLengthFieldSize)
+                return null;
+
+            var lengthBuffer = new byte[FooterLengthFieldSize];
+            stream.Seek(-FooterLengthFieldSize, SeekOrigin.End);
+            await stream.ReadExactlyAsync(lengthBuffer, cancellationToken);
+            var footerLength = BinaryPrimitives.ReadInt64BigEndian(lengthBuffer);
+
+            if (footerLength <= 0 || footerLength > stream.Length)
+                return null;
+
+            var footerBuffer = new byte[footerLength];
+            stream.Seek(-footerLength, SeekOrigin.End);
+            await stream.ReadExactlyAsync(footerBuffer, cancellationToken);
+
+            var footer = DownloadFooter.Deserialize(footerBuffer);
+
+            if (!footer.Resumable || footer.TotalBytes != totalSize || footer.SourceUri.AbsoluteUri != uri.AbsoluteUri)
+            {
+                handle.Log("Existing resume data does not match this download (URL or size changed); starting over.");
+                return null;
+            }
+
+            return footer;
+        }
+        catch (Exception ex) when (ex is FormatException or IOException or EndOfStreamException or ArgumentException)
+        {
+            handle.Log($"Could not read resume data from '{workingPath}': {ex.Message}. Starting over.");
+            return null;
+        }
+    }
+
+    /// <summary>Runs <paramref name="runChunks"/> alongside a background footer-checkpoint loop,
+    /// so the sidecar reflects real progress every few seconds without any chunk task writing to
+    /// the footer region itself. The loop keeps running across pause and only stops once
+    /// <paramref name="runChunks"/> finishes (success, failure, or cancellation), always doing one
+    /// last write first so the footer is never more than one interval stale.</summary>
+    private static async Task RunWithFooterCheckpointingAsync(
+        SafeFileHandle fileHandle,
+        Uri uri,
+        long totalSize,
+        bool resumable,
+        DownloadHandle handle,
+        Func<CancellationToken, Task> runChunks,
+        CancellationToken cancellationToken)
+    {
+        using var footerCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        var footerLoop = RunFooterCheckpointLoopAsync(fileHandle, uri, totalSize, resumable, handle, footerCts.Token);
+        try
+        {
+            await runChunks(cancellationToken);
+        }
+        finally
+        {
+            footerCts.Cancel();
+            await footerLoop;
+        }
+    }
+
+    private static async Task RunFooterCheckpointLoopAsync(
+        SafeFileHandle fileHandle, Uri uri, long totalSize, bool resumable, DownloadHandle handle, CancellationToken cancellationToken)
+    {
+        try
+        {
+            while (true)
+            {
+                await Task.Delay(FooterCheckpointInterval, cancellationToken);
+                await WriteFooterAsync(fileHandle, uri, totalSize, resumable, handle, CancellationToken.None);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // Expected: cancelled once the chunk downloads stop, for any reason. The final write
+            // below (always run, success or not) captures wherever things actually landed.
+        }
+        finally
+        {
+            await WriteFooterAsync(fileHandle, uri, totalSize, resumable, handle, CancellationToken.None);
+        }
+    }
+
+    private static async Task WriteFooterAsync(
+        SafeFileHandle fileHandle, Uri uri, long totalSize, bool resumable, DownloadHandle handle, CancellationToken cancellationToken)
+    {
+        var chunks = handle.Chunks
+            .Select(c => new ChunkFooterData(c.StartByte, c.EndByte, c.BytesDownloaded, c.Status))
+            .ToArray();
+        var footer = DownloadFooter.Serialize(new DownloadFooterData(uri, totalSize, resumable, chunks));
+        await RandomAccess.WriteAsync(fileHandle, footer, totalSize, cancellationToken);
+    }
+
+    /// <summary>Closes off a successful download: truncates away the footer (the shared handle
+    /// must be closed first - there's no <c>RandomAccess.SetLength</c>) and renames the working
+    /// file onto its final destination.</summary>
+    private static void FinalizeAsync_Sync(string workingPath, string destinationPath, long totalSize)
+    {
+        using (var fs = new FileStream(workingPath, FileMode.Open, FileAccess.Write))
+            fs.SetLength(totalSize);
+        File.Move(workingPath, destinationPath, overwrite: true);
+    }
+
+    private static Task FinalizeAsync(string workingPath, string destinationPath, long totalSize)
+    {
+        FinalizeAsync_Sync(workingPath, destinationPath, totalSize);
+        return Task.CompletedTask;
     }
 
     private async Task DownloadChunkAsync(
@@ -154,9 +368,16 @@ public class Downloader
         DownloadHandle handle,
         CancellationToken cancellationToken)
     {
-        // Mutable across retries: on a retry we resume from the last byte actually written to
-        // disk rather than re-downloading the whole chunk from its original start.
-        long currentOffset = start;
+        var chunkSize = end - start + 1;
+        var alreadyDownloaded = handle.Chunks[chunkIndex].BytesDownloaded;
+        if (alreadyDownloaded >= chunkSize)
+        {
+            // Fully downloaded in a previous run - no HTTP request needed at all.
+            handle.SetChunkStatus(chunkIndex, ChunkStatus.Completed);
+            return;
+        }
+
+        long currentOffset = start + alreadyDownloaded;
 
         handle.SetChunkStatus(chunkIndex, ChunkStatus.Downloading);
         try
@@ -211,9 +432,6 @@ public class Downloader
         DownloadHandle handle,
         CancellationToken cancellationToken)
     {
-        // Represented as chunk 0 (the single entry handle.InitializeChunks was called with by
-        // the caller) so this path reports progress through the same per-chunk surface as the
-        // concurrent-chunks path.
         const int chunkIndex = 0;
 
         handle.SetChunkStatus(chunkIndex, ChunkStatus.Downloading);
@@ -221,8 +439,6 @@ public class Downloader
         {
             await _pipeline.ExecuteAsync(async ct =>
             {
-                // No Range header: every attempt (including retries) re-requests the full body
-                // from byte 0 and overwrites what was previously written.
                 var req = new HttpRequestMessage(HttpMethod.Get, uri);
 
                 using var resp = await _client.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, ct);

@@ -181,6 +181,23 @@ public sealed class DownloadHandle
         ReportProgress(force: true);
     }
 
+    /// <summary>Same as <see cref="InitializeChunks"/>, but seeded from a previously-persisted
+    /// <c>.avadm</c> footer so a resumed download's progress (and any chunks already fully
+    /// downloaded) is visible immediately, rather than starting every chunk back at 0/Pending.</summary>
+    internal void InitializeChunksFromFooter(IReadOnlyList<ChunkFooterData> chunks)
+    {
+        var trackers = new ChunkTracker[chunks.Count];
+        long seededTotal = 0;
+        for (var i = 0; i < chunks.Count; i++)
+        {
+            trackers[i] = new ChunkTracker(chunks[i].Start, chunks[i].End, chunks[i].BytesDownloaded, chunks[i].Status);
+            seededTotal += chunks[i].BytesDownloaded;
+        }
+        _chunkTrackers = trackers;
+        Interlocked.Exchange(ref _bytesDownloaded, seededTotal);
+        ReportProgress(force: true);
+    }
+
     internal void SetChunkStatus(int chunkIndex, ChunkStatus status)
     {
         _chunkTrackers[chunkIndex].SetStatus(status);
@@ -226,10 +243,10 @@ public sealed class DownloadHandle
     /// (never by any other chunk's task). The byte range is fixed at construction; only bytes
     /// downloaded and status change afterward, both via lock-free atomics so reading a snapshot
     /// (<see cref="ToSnapshot"/>) never blocks the writer.</summary>
-    private sealed class ChunkTracker(long start, long end)
+    private sealed class ChunkTracker(long start, long end, long initialBytesDownloaded = 0, ChunkStatus initialStatus = ChunkStatus.Pending)
     {
-        private long _bytesDownloaded;
-        private volatile int _status = (int)ChunkStatus.Pending;
+        private long _bytesDownloaded = initialBytesDownloaded;
+        private volatile int _status = (int)initialStatus;
 
         public void AddBytes(int count) => Interlocked.Add(ref _bytesDownloaded, count);
         public void SetStatus(ChunkStatus status) => _status = (int)status;
