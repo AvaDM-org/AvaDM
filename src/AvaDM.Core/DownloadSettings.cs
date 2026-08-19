@@ -37,6 +37,26 @@ public sealed class DownloadSettings
     /// </summary>
     public string? RepositoryPath { get; set; }
 
+    /// <summary>
+    /// Number of times a failed chunk (or whole-file) download attempt is retried before the
+    /// chunk is marked <see cref="ChunkStatus.Failed"/>. Covers transient connection errors,
+    /// I/O errors, per-attempt timeouts, and HTTP 408/429/5xx responses - see
+    /// <see cref="ChunkResiliencePipelineFactory"/>.
+    /// </summary>
+    public int DefaultMaxRetryAttempts { get; set; } = 5;
+
+    /// <summary>
+    /// Delay before the first retry of a failed attempt; later retries back off exponentially
+    /// from this with jitter.
+    /// </summary>
+    public TimeSpan DefaultRetryBaseDelay { get; set; } = TimeSpan.FromSeconds(1);
+
+    /// <summary>
+    /// Timeout applied to a single download attempt (connect plus that attempt's transfer), not
+    /// to the whole chunk - each retry gets a fresh budget.
+    /// </summary>
+    public TimeSpan DefaultPerAttemptTimeout { get; set; } = TimeSpan.FromSeconds(30);
+
     /// <summary>Resolves <see cref="RepositoryPath"/> to a concrete file path, creating the
     /// containing directory if it doesn't exist yet. Called by <see cref="DownloadManager"/>
     /// when it opens the repository.</summary>

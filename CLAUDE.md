@@ -26,7 +26,7 @@ The core targets `net10.0` and exposes a live `DownloadHandle` for each transfer
 - `DownloadHandle.Pause()`/`Resume()` use a cooperative async pause gate shared by all chunk tasks.
 - The `.avadm` file contains a binary footer with the source URI, total size, chunk ranges, statuses, and byte counts. The footer is checkpointed about every five seconds and once more when a run stops.
 - A later process can resume by adding the same URL and destination with `--resume` (or the equivalent `ConflictResolution.Resume`). The footer is checked against the fresh URL/size and file length; missing, corrupt, stale, or mismatched data causes a safe fresh start rather than an exception. A completed indexed download is not resumed.
-- Polly retries transient connection errors, I/O errors, timeouts, HTTP 408/429/5xx responses, with exponential backoff and jitter. The default is five retries and a 30-second timeout per attempt.
+- Polly retries transient connection errors, I/O errors, timeouts, HTTP 408/429/5xx responses, with exponential backoff and jitter. Defaults to five retries and a 30-second per-attempt timeout; configurable via `DownloadSettings.DefaultMaxRetryAttempts`, `DefaultRetryBaseDelay`, and `DefaultPerAttemptTimeout`. The resilience pipeline is built fresh per download from current settings, so changes take effect on the next download started.
 - A per-download token-bucket speed limiter is shared by all of that download's chunks, so a limit applies to aggregate throughput rather than once per chunk. It can be changed while running.
 
 ### Persistence and conflict handling

@@ -1,6 +1,5 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
-using Polly;
 
 namespace AvaDM.Core;
 
@@ -41,9 +40,9 @@ public sealed class DownloadManager
     private readonly SemaphoreSlim _initLock = new(1, 1);
     private bool _initialized;
 
-    public DownloadManager(HttpClient client, ResiliencePipeline pipeline, DownloadSettings settings)
+    public DownloadManager(HttpClient client, DownloadSettings settings)
     {
-        _downloader = new Downloader(client, pipeline, settings);
+        _downloader = new Downloader(client, settings);
         _repository = new DownloadRepository(settings.GetResolvedRepositoryPath());
     }
 

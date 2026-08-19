@@ -10,11 +10,8 @@ using AvaDM.Core;
 var dashboard = new DownloadDashboard();
 
 using var httpClient = new HttpClient { Timeout = Timeout.InfiniteTimeSpan };
-var pipeline = ChunkResiliencePipelineFactory.Create(
-    onRetry: (attempt, delay, ex) =>
-        dashboard.Log($"Chunk request failed (attempt {attempt}), retrying in {delay.TotalSeconds:0.0}s: {ex?.Message}"));
 var settings = new DownloadSettings();
-var manager = new DownloadManager(httpClient, pipeline, settings);
+var manager = new DownloadManager(httpClient, settings);
 
 var handles = new Dictionary<string, (Guid Id, DownloadHandle Handle)>();
 var nextId = 1;

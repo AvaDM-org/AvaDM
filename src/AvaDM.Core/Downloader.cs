@@ -28,13 +28,11 @@ public class Downloader
     private static readonly TimeSpan FooterCheckpointInterval = TimeSpan.FromSeconds(5);
 
     private readonly HttpClient _client;
-    private readonly ResiliencePipeline _pipeline;
     private readonly DownloadSettings _settings;
 
-    public Downloader(HttpClient client, ResiliencePipeline pipeline, DownloadSettings settings)
+    public Downloader(HttpClient client, DownloadSettings settings)
     {
         _client = client;
-        _pipeline = pipeline;
         _settings = settings;
     }
 
@@ -93,6 +91,16 @@ public class Downloader
         DownloadHandle handle,
         CancellationToken cancellationToken)
     {
+        // Built fresh per download (not shared/cached) so a settings change picks up on the next
+        // download started, the same way DefaultChunkCount and DefaultSpeedLimitBytesPerSecond do.
+        // Cheap relative to the download itself, and onRetry needs to close over this handle.
+        var pipeline = ChunkResiliencePipelineFactory.Create(
+            _settings.DefaultMaxRetryAttempts,
+            _settings.DefaultRetryBaseDelay,
+            _settings.DefaultPerAttemptTimeout,
+            onRetry: (attempt, delay, ex) =>
+                handle.Log($"Request failed (attempt {attempt}), retrying in {delay.TotalSeconds:0.0}s: {ex?.Message}"));
+
         var msg = new HttpRequestMessage(HttpMethod.Head, uri);
         var headResponse = await _client.SendAsync(msg, cancellationToken);
 
@@ -119,7 +127,7 @@ public class Downloader
                 handle.InitializeChunks([(0, totalSize - 1)]);
                 await RunWithFooterCheckpointingAsync(
                     fileHandle, uri, totalSize, resumable: false, handle,
-                    ct => DownloadWholeFileAsync(fileHandle, uri, totalSize, handle, ct),
+                    ct => DownloadWholeFileAsync(fileHandle, uri, totalSize, handle, pipeline, ct),
                     cancellationToken);
             }
             finally
@@ -165,7 +173,7 @@ public class Downloader
         {
             var chunkTasks = new Task[ranges.Length];
             for (var i = 0; i < ranges.Length; i++)
-                chunkTasks[i] = DownloadChunkAsync(rangedFileHandle, uri, i, ranges[i].Start, ranges[i].End, handle, cancellationToken);
+                chunkTasks[i] = DownloadChunkAsync(rangedFileHandle, uri, i, ranges[i].Start, ranges[i].End, handle, pipeline, cancellationToken);
 
             await RunWithFooterCheckpointingAsync(
                 rangedFileHandle, uri, totalSize, resumable: true, handle,
@@ -366,6 +374,7 @@ public class Downloader
         long start,
         long end,
         DownloadHandle handle,
+        ResiliencePipeline pipeline,
         CancellationToken cancellationToken)
     {
         var chunkSize = end - start + 1;
@@ -382,7 +391,7 @@ public class Downloader
         handle.SetChunkStatus(chunkIndex, ChunkStatus.Downloading);
         try
         {
-            await _pipeline.ExecuteAsync(async ct =>
+            await pipeline.ExecuteAsync(async ct =>
             {
                 var req = new HttpRequestMessage(HttpMethod.Get, uri);
                 req.Headers.Range = new RangeHeaderValue(currentOffset, end);
@@ -430,6 +439,7 @@ public class Downloader
         Uri uri,
         long totalSize,
         DownloadHandle handle,
+        ResiliencePipeline pipeline,
         CancellationToken cancellationToken)
     {
         const int chunkIndex = 0;
@@ -437,7 +447,7 @@ public class Downloader
         handle.SetChunkStatus(chunkIndex, ChunkStatus.Downloading);
         try
         {
-            await _pipeline.ExecuteAsync(async ct =>
+            await pipeline.ExecuteAsync(async ct =>
             {
                 var req = new HttpRequestMessage(HttpMethod.Get, uri);
 
