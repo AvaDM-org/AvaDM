@@ -8,15 +8,15 @@
     </PropertyGroup>
 
     <ItemGroup>
-      <ProjectReference Include="..\AvaDM.Core\AvaDM.Core.csproj" />
-    </ItemGroup>
-
-    <ItemGroup>
       <Folder Include="test-dir\" />
     </ItemGroup>
 
     <ItemGroup>
       <PackageReference Include="Terminal.Gui" Version="2.4.17" />
+    </ItemGroup>
+
+    <ItemGroup>
+      <ProjectReference Include="..\AvaDM.Core\AvaDM.Core.csproj" />
     </ItemGroup>
 
 </Project>

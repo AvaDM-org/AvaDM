@@ -15,7 +15,7 @@
     </ItemGroup>
 
     <ItemGroup>
-        <ProjectReference Include="..\..\src\AvaDM.Core\AvaDM.Core.csproj" />
+      <ProjectReference Include="..\..\src\AvaDM.Core\AvaDM.Core.csproj" />
     </ItemGroup>
 
 </Project>

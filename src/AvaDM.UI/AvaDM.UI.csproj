@@ -21,10 +21,11 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\AvaDM.Core\AvaDM.Core.csproj" />
+    <AvaloniaResource Include="Assets/AvaDMTray.ico" />
   </ItemGroup>
 
   <ItemGroup>
-    <AvaloniaResource Include="Assets/AvaDMTray.ico" />
+    <ProjectReference Include="..\AvaDM.Core\AvaDM.Core.csproj" />
   </ItemGroup>
+
 </Project>
