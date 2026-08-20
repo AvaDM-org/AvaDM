@@ -127,8 +127,8 @@
                         </ItemsControl.ItemsPanel>
                         <ItemsControl.ItemTemplate>
                             <DataTemplate x:DataType="vm:ChunkRowViewModel">
-                                <Grid ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="{StaticResource SpaceSm}">
-                                    <TextBlock Grid.Column="0" Text="{Binding ByteRangeText}"
+                                <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="{StaticResource SpaceSm}">
+                                    <TextBlock Grid.Column="0" Text="{Binding ChunkNumberText}"
                                                FontFamily="{StaticResource MonoFontFamily}"
                                                FontSize="{StaticResource NumericMdFontSize}"
                                                FontWeight="{StaticResource NumericMdFontWeight}"
@@ -143,10 +143,6 @@
                                                FontWeight="{StaticResource NumericMdFontWeight}"
                                                Foreground="{DynamicResource TextSecondaryBrush}"
                                                VerticalAlignment="Center" />
-                                    <controls:StatusChip Grid.Column="3"
-                                                          StatusClass="{Binding StatusChipClass}"
-                                                          StatusText="{Binding StatusText}"
-                                                          VerticalAlignment="Center" />
                                 </Grid>
                             </DataTemplate>
                         </ItemsControl.ItemTemplate>

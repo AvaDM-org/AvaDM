@@ -206,10 +206,21 @@ public sealed partial class DownloadListViewModel : ViewModelBase, IDisposable
         var existing = _allRows.FirstOrDefault(r => r.Id == record.Id);
         if (existing is not null)
         {
-            if (handle is not null && !existing.HasActiveHandle)
+            if (handle is not null)
+            {
+                // AddDownloadAsync's Resume/Overwrite paths hand back a brand-new handle for this
+                // same id (see DownloadManager.AddDownloadAsync's ResetForRestartAsync comment) -
+                // any handle this row was already wired to is now stale (its download finished,
+                // failed, or was cancelled), so swap it out rather than leaving the row frozen on
+                // the old handle's terminal state while the new download runs invisibly.
+                if (existing.HasActiveHandle)
+                    existing.Detach();
                 existing.AttachHandle(handle);
+            }
             else
+            {
                 existing.UpdateFromRecord(record);
+            }
 
             return existing;
         }

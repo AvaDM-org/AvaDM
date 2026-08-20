@@ -13,6 +13,7 @@ namespace AvaDM.UI.ViewModels;
 public sealed partial class ChunkRowViewModel : ViewModelBase
 {
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ChunkNumberText))]
     private int _index;
 
     [ObservableProperty]
@@ -48,6 +49,8 @@ public sealed partial class ChunkRowViewModel : ViewModelBase
     public double ProgressPercent => TotalBytes > 0 ? BytesDownloaded * 100.0 / TotalBytes : 0.0;
 
     public string ByteRangeText => FormatHelpers.FormatByteRange(StartByte, EndByte);
+
+    public string ChunkNumberText => $"Chunk {Index + 1}";
 
     public string StatusText => Status.ToString();
 

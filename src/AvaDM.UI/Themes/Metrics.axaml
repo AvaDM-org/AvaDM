@@ -18,6 +18,9 @@
   <Thickness x:Key="ButtonPadding">12,6</Thickness>
   <Thickness x:Key="IconButtonPadding">6</Thickness>
 
+  <!-- Fixed width for numeric settings fields (NumericUpDown/TextBox) so their right edges align. -->
+  <sys:Double x:Key="SettingsNumericFieldWidth">120</sys:Double>
+
   <!-- Radius (exactly three - never add a fourth) -->
   <CornerRadius x:Key="RadiusControl">4</CornerRadius>
   <CornerRadius x:Key="RadiusCard">6</CornerRadius>

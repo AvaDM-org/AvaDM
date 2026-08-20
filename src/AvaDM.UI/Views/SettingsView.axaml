@@ -36,40 +36,44 @@
                         </Grid>
                     </StackPanel>
 
-                    <Grid ColumnDefinitions="Auto,*" ColumnSpacing="{StaticResource SpaceSm}">
+                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="{StaticResource SpaceSm}">
                         <TextBlock Grid.Column="0" Text="Chunk count"
                                    FontSize="{StaticResource BodyMdFontSize}"
                                    Foreground="{DynamicResource TextSecondaryBrush}"
                                    VerticalAlignment="Center" />
                         <NumericUpDown Grid.Column="1" Value="{Binding ChunkCount, Mode=TwoWay}"
-                                       Minimum="1" Maximum="64" Increment="1" />
+                                       Minimum="1" Maximum="64" Increment="1"
+                                       Width="{StaticResource SettingsNumericFieldWidth}" />
                     </Grid>
 
-                    <Grid ColumnDefinitions="Auto,*" ColumnSpacing="{StaticResource SpaceSm}">
+                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="{StaticResource SpaceSm}">
                         <TextBlock Grid.Column="0" Text="Max retry attempts"
                                    FontSize="{StaticResource BodyMdFontSize}"
                                    Foreground="{DynamicResource TextSecondaryBrush}"
                                    VerticalAlignment="Center" />
                         <NumericUpDown Grid.Column="1" Value="{Binding MaxRetryAttempts, Mode=TwoWay}"
-                                       Minimum="0" Maximum="20" Increment="1" />
+                                       Minimum="0" Maximum="20" Increment="1"
+                                       Width="{StaticResource SettingsNumericFieldWidth}" />
                     </Grid>
 
-                    <Grid ColumnDefinitions="Auto,*" ColumnSpacing="{StaticResource SpaceSm}">
+                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="{StaticResource SpaceSm}">
                         <TextBlock Grid.Column="0" Text="Retry base delay (seconds)"
                                    FontSize="{StaticResource BodyMdFontSize}"
                                    Foreground="{DynamicResource TextSecondaryBrush}"
                                    VerticalAlignment="Center" />
                         <TextBox Grid.Column="1"
-                                 Text="{Binding RetryBaseDelaySecondsInput, Mode=TwoWay}" />
+                                 Text="{Binding RetryBaseDelaySecondsInput, Mode=TwoWay}"
+                                 Width="{StaticResource SettingsNumericFieldWidth}" />
                     </Grid>
 
-                    <Grid ColumnDefinitions="Auto,*" ColumnSpacing="{StaticResource SpaceSm}">
+                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="{StaticResource SpaceSm}">
                         <TextBlock Grid.Column="0" Text="Per-attempt timeout (seconds)"
                                    FontSize="{StaticResource BodyMdFontSize}"
                                    Foreground="{DynamicResource TextSecondaryBrush}"
                                    VerticalAlignment="Center" />
                         <TextBox Grid.Column="1"
-                                 Text="{Binding PerAttemptTimeoutSecondsInput, Mode=TwoWay}" />
+                                 Text="{Binding PerAttemptTimeoutSecondsInput, Mode=TwoWay}"
+                                 Width="{StaticResource SettingsNumericFieldWidth}" />
                     </Grid>
                 </StackPanel>
             </Border>

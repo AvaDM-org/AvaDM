@@ -92,7 +92,7 @@ components:
     contents: "file name, destination path, aggregate progress bar, status chip, speed + ETA in numeric-md, expand toggle for per-chunk detail"
   chunk-row:
     background: "surface-alt, control radius, shown when a download row is expanded"
-    contents: "byte range (numeric-md), thin flat progress bar, per-chunk status"
+    contents: "chunk number (numeric-md), thin flat progress bar, per-chunk speed"
   button:
     primary: "filled with primary, on-primary text, control radius, no gradient"
     secondary: "surface background, 1px border, text-primary text, control radius"
