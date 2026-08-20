@@ -64,6 +64,9 @@ public sealed partial class DownloadRowViewModel : ViewModelBase
     [NotifyPropertyChangedFor(nameof(CanCancel))]
     [NotifyPropertyChangedFor(nameof(SpeedText))]
     [NotifyPropertyChangedFor(nameof(EtaText))]
+    [NotifyCanExecuteChangedFor(nameof(PauseCommand))]
+    [NotifyCanExecuteChangedFor(nameof(ResumeCommand))]
+    [NotifyCanExecuteChangedFor(nameof(CancelCommand))]
     private DownloadState _state;
 
     [ObservableProperty]
@@ -76,6 +79,9 @@ public sealed partial class DownloadRowViewModel : ViewModelBase
     [NotifyPropertyChangedFor(nameof(CanCancel))]
     [NotifyPropertyChangedFor(nameof(SpeedText))]
     [NotifyPropertyChangedFor(nameof(EtaText))]
+    [NotifyCanExecuteChangedFor(nameof(PauseCommand))]
+    [NotifyCanExecuteChangedFor(nameof(ResumeCommand))]
+    [NotifyCanExecuteChangedFor(nameof(CancelCommand))]
     private bool _hasActiveHandle;
 
     [ObservableProperty]

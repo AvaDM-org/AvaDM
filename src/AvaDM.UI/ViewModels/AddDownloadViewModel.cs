@@ -34,6 +34,10 @@ public sealed partial class AddDownloadViewModel : ViewModelBase
     private string? _speedLimitInput;
 
     [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(SubmitCommand))]
+    [NotifyCanExecuteChangedFor(nameof(ResolveResumeCommand))]
+    [NotifyCanExecuteChangedFor(nameof(ResolveOverwriteCommand))]
+    [NotifyCanExecuteChangedFor(nameof(ResolveRenameCommand))]
     private bool _isBusy;
 
     [ObservableProperty]
@@ -41,6 +45,9 @@ public sealed partial class AddDownloadViewModel : ViewModelBase
     private string? _errorMessage;
 
     [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(ResolveResumeCommand))]
+    [NotifyCanExecuteChangedFor(nameof(ResolveOverwriteCommand))]
+    [NotifyCanExecuteChangedFor(nameof(ResolveRenameCommand))]
     private bool _hasConflict;
 
     [ObservableProperty]
