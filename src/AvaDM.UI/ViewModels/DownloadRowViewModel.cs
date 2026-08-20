@@ -1,11 +1,22 @@
 using System.Collections.ObjectModel;
 using AvaDM.Core;
 using AvaDM.UI.Converters;
+using AvaDM.UI.Services;
 using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 
 namespace AvaDM.UI.ViewModels;
+
+/// <summary>What double-clicking a completed row in the downloads list does, per the Settings
+/// page's "Downloaded item double-click" choice (see <see cref="SettingsViewModel"/>). The
+/// row's separate folder-icon button always opens the containing folder regardless of this
+/// setting - this enum only governs the double-click gesture.</summary>
+public enum DownloadDoubleClickAction
+{
+    OpenFile,
+    OpenContainingFolder,
+}
 
 /// <summary>
 /// Display-only status that adds the derived "Interrupted" case on top of the real
@@ -42,6 +53,7 @@ public sealed partial class DownloadRowViewModel : ViewModelBase
     private readonly Action<DownloadRowViewModel> _onRemoveRequested;
     private readonly Action<DownloadRowViewModel> _onCancelRequested;
     private readonly Action<string> _onLogMessage;
+    private readonly Func<DownloadDoubleClickAction> _getDoubleClickAction;
     private DownloadHandle? _handle;
 
     public Guid Id { get; }
@@ -65,9 +77,11 @@ public sealed partial class DownloadRowViewModel : ViewModelBase
     [NotifyPropertyChangedFor(nameof(CanCancel))]
     [NotifyPropertyChangedFor(nameof(SpeedText))]
     [NotifyPropertyChangedFor(nameof(EtaText))]
+    [NotifyPropertyChangedFor(nameof(CanOpenDownload))]
     [NotifyCanExecuteChangedFor(nameof(PauseCommand))]
     [NotifyCanExecuteChangedFor(nameof(ResumeCommand))]
     [NotifyCanExecuteChangedFor(nameof(CancelCommand))]
+    [NotifyCanExecuteChangedFor(nameof(OpenDownloadCommand))]
     private DownloadState _state;
 
     [ObservableProperty]
@@ -80,9 +94,11 @@ public sealed partial class DownloadRowViewModel : ViewModelBase
     [NotifyPropertyChangedFor(nameof(CanCancel))]
     [NotifyPropertyChangedFor(nameof(SpeedText))]
     [NotifyPropertyChangedFor(nameof(EtaText))]
+    [NotifyPropertyChangedFor(nameof(CanOpenDownload))]
     [NotifyCanExecuteChangedFor(nameof(PauseCommand))]
     [NotifyCanExecuteChangedFor(nameof(ResumeCommand))]
     [NotifyCanExecuteChangedFor(nameof(CancelCommand))]
+    [NotifyCanExecuteChangedFor(nameof(OpenDownloadCommand))]
     private bool _hasActiveHandle;
 
     [ObservableProperty]
@@ -132,12 +148,14 @@ public sealed partial class DownloadRowViewModel : ViewModelBase
         DownloadHandle? handle,
         Action<DownloadRowViewModel> onRemoveRequested,
         Action<DownloadRowViewModel> onCancelRequested,
-        Action<string> onLogMessage)
+        Action<string> onLogMessage,
+        Func<DownloadDoubleClickAction> getDoubleClickAction)
     {
         _downloadManager = downloadManager;
         _onRemoveRequested = onRemoveRequested;
         _onCancelRequested = onCancelRequested;
         _onLogMessage = onLogMessage;
+        _getDoubleClickAction = getDoubleClickAction;
         Id = record.Id;
         _fileName = Path.GetFileName(record.DestinationPath);
         _destinationPath = record.DestinationPath;
@@ -194,9 +212,16 @@ public sealed partial class DownloadRowViewModel : ViewModelBase
 
     public bool CanPause => HasActiveHandle && State == DownloadState.Running;
 
-    public bool CanResume => (HasActiveHandle && State == DownloadState.Paused) || DisplayStatus == DownloadDisplayStatus.Interrupted;
+    public bool CanResume => (HasActiveHandle && State == DownloadState.Paused)
+        || DisplayStatus is DownloadDisplayStatus.Interrupted or DownloadDisplayStatus.Failed;
 
     public bool CanCancel => HasActiveHandle && State is DownloadState.Running or DownloadState.Paused or DownloadState.Pending;
+
+    /// <summary>Whether double-clicking this row (or its name) opens anything at all - only
+    /// once the download has actually finished and the final file exists at
+    /// <see cref="DestinationPath"/>. The folder-icon button below is not gated by this: it
+    /// always tries to open the containing folder regardless of status.</summary>
+    public bool CanOpenDownload => DisplayStatus == DownloadDisplayStatus.Completed;
 
     /// <summary>Wires this row to a live handle - either at construction (freshly-started or
     /// already-active-in-process download) or later, when reconciliation discovers this
@@ -289,14 +314,20 @@ public sealed partial class DownloadRowViewModel : ViewModelBase
     [RelayCommand(CanExecute = nameof(CanResume))]
     private async Task Resume()
     {
-        if (_handle is not null)
+        if (_handle is not null && State == DownloadState.Paused)
         {
             _handle.Resume();
             return;
         }
 
-        // Interrupted row: no live handle in this process yet - re-add it, which falls through
-        // to Downloader's .avadm-footer resume logic exactly like a fresh start.
+        // Interrupted (no live handle yet) or Failed (a stale handle from the failed attempt,
+        // which Resume() on the handle itself can't restart - only a Paused handle can). Either
+        // way, re-add it, which falls through to Downloader's .avadm-footer resume logic and
+        // picks up from whatever was already written to disk instead of starting over.
+        if (_handle is not null)
+            Detach();
+        LastError = null;
+
         var result = await _downloadManager.ResumeDownloadAsync(Id);
         if (result is { Success: true, Handle: not null })
             AttachHandle(result.Handle);
@@ -314,4 +345,28 @@ public sealed partial class DownloadRowViewModel : ViewModelBase
 
     [RelayCommand]
     private void Remove() => _onRemoveRequested(this);
+
+    /// <summary>Double-click behavior for a completed row, per the Settings page's
+    /// "Downloaded item double-click" choice - either open the file itself or reveal its
+    /// containing folder. Wired to the header's DoubleTapped gesture in
+    /// <c>DownloadRowView.axaml.cs</c>, not to a visible button.</summary>
+    [RelayCommand(CanExecute = nameof(CanOpenDownload))]
+    private void OpenDownload()
+    {
+        var opened = _getDoubleClickAction() == DownloadDoubleClickAction.OpenContainingFolder
+            ? FileLauncher.OpenContainingFolder(DestinationPath)
+            : FileLauncher.OpenFile(DestinationPath);
+
+        if (!opened)
+            _onLogMessage($"Couldn't open \"{FileName}\" - it may have been moved or deleted.");
+    }
+
+    /// <summary>The row's folder-icon button: always tries to reveal the containing folder,
+    /// regardless of download status, unlike <see cref="OpenDownload"/> above.</summary>
+    [RelayCommand]
+    private void OpenContainingFolder()
+    {
+        if (!FileLauncher.OpenContainingFolder(DestinationPath))
+            _onLogMessage($"Couldn't open the folder for \"{FileName}\" - it may have been moved or deleted.");
+    }
 }

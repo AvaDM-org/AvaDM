@@ -61,11 +61,22 @@ public sealed partial class SettingsViewModel : ViewModelBase
     [NotifyPropertyChangedFor(nameof(IsCloseAppSelected))]
     private bool _closeToTray;
 
+    /// <summary>What double-clicking a completed row in the downloads list does. Persisted
+    /// immediately on change, same as the theme and close-to-tray toggles above; read live by
+    /// each <see cref="DownloadRowViewModel"/> via a getter closure - see
+    /// <see cref="MainWindowViewModel"/>'s wiring - so a change here takes effect on the next
+    /// double-click without needing to reopen the app.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsDoubleClickOpenFileSelected))]
+    [NotifyPropertyChangedFor(nameof(IsDoubleClickOpenContainingFolderSelected))]
+    private DownloadDoubleClickAction _doubleClickAction;
+
     public SettingsViewModel(
         DownloadSettings settings,
         UiPreferencesRepository uiPreferences,
         Action navigateToDownloads,
-        bool closeToTray)
+        bool closeToTray,
+        DownloadDoubleClickAction doubleClickAction)
     {
         _settings = settings;
         _uiPreferences = uiPreferences;
@@ -80,6 +91,7 @@ public sealed partial class SettingsViewModel : ViewModelBase
         _perAttemptTimeoutSecondsInput = settings.DefaultPerAttemptTimeout.TotalSeconds.ToString("0.##");
         _isDarkTheme = Application.Current!.RequestedThemeVariant == ThemeVariant.Dark;
         _closeToTray = closeToTray;
+        _doubleClickAction = doubleClickAction;
     }
 
     public string ResolvedRepositoryPathHint => _settings.GetResolvedRepositoryPath();
@@ -97,6 +109,10 @@ public sealed partial class SettingsViewModel : ViewModelBase
     public bool IsCloseToTraySelected => CloseToTray;
 
     public bool IsCloseAppSelected => !CloseToTray;
+
+    public bool IsDoubleClickOpenFileSelected => DoubleClickAction == DownloadDoubleClickAction.OpenFile;
+
+    public bool IsDoubleClickOpenContainingFolderSelected => DoubleClickAction == DownloadDoubleClickAction.OpenContainingFolder;
 
     [RelayCommand]
     private void CloseSettings() => _navigateToDownloads();
@@ -116,6 +132,20 @@ public sealed partial class SettingsViewModel : ViewModelBase
     {
         CloseToTray = false;
         await _uiPreferences.SetValueAsync(UiPreferencesRepository.CloseToTrayKey, "false");
+    }
+
+    [RelayCommand]
+    private async Task SelectDoubleClickOpenFile()
+    {
+        DoubleClickAction = DownloadDoubleClickAction.OpenFile;
+        await _uiPreferences.SetValueAsync(UiPreferencesRepository.DoubleClickActionKey, "OpenFile");
+    }
+
+    [RelayCommand]
+    private async Task SelectDoubleClickOpenContainingFolder()
+    {
+        DoubleClickAction = DownloadDoubleClickAction.OpenContainingFolder;
+        await _uiPreferences.SetValueAsync(UiPreferencesRepository.DoubleClickActionKey, "OpenContainingFolder");
     }
 
     [RelayCommand]

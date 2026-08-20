@@ -172,6 +172,40 @@
                     CornerRadius="{StaticResource RadiusCard}"
                     Padding="{StaticResource PanelPadding}">
                 <StackPanel Spacing="{StaticResource SpaceSm}">
+                    <TextBlock Text="Downloaded Item Double-Click"
+                               FontSize="{StaticResource HeadingSmFontSize}"
+                               FontWeight="{StaticResource HeadingSmFontWeight}"
+                               Foreground="{DynamicResource TextPrimaryBrush}" />
+                    <TextBlock Text="What should double-clicking a completed download do?"
+                               FontSize="{StaticResource BodyMdFontSize}"
+                               Foreground="{DynamicResource TextSecondaryBrush}" />
+                    <StackPanel Orientation="Horizontal" Spacing="{StaticResource SpaceXs}">
+                        <Panel>
+                            <Button Classes="primary" Content="Open File"
+                                    Command="{Binding SelectDoubleClickOpenFileCommand}"
+                                    IsVisible="{Binding IsDoubleClickOpenFileSelected}" />
+                            <Button Classes="secondary" Content="Open File"
+                                    Command="{Binding SelectDoubleClickOpenFileCommand}"
+                                    IsVisible="{Binding !IsDoubleClickOpenFileSelected}" />
+                        </Panel>
+                        <Panel>
+                            <Button Classes="primary" Content="Open Containing Folder"
+                                    Command="{Binding SelectDoubleClickOpenContainingFolderCommand}"
+                                    IsVisible="{Binding IsDoubleClickOpenContainingFolderSelected}" />
+                            <Button Classes="secondary" Content="Open Containing Folder"
+                                    Command="{Binding SelectDoubleClickOpenContainingFolderCommand}"
+                                    IsVisible="{Binding !IsDoubleClickOpenContainingFolderSelected}" />
+                        </Panel>
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+
+            <Border Background="{DynamicResource SurfaceBrush}"
+                    BorderBrush="{DynamicResource BorderBrush}"
+                    BorderThickness="1"
+                    CornerRadius="{StaticResource RadiusCard}"
+                    Padding="{StaticResource PanelPadding}">
+                <StackPanel Spacing="{StaticResource SpaceSm}">
                     <TextBlock Text="Window Closing"
                                FontSize="{StaticResource HeadingSmFontSize}"
                                FontWeight="{StaticResource HeadingSmFontWeight}"

@@ -22,10 +22,16 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     [ObservableProperty]
     private ViewModelBase _currentPageViewModel;
 
-    public MainWindowViewModel(DownloadManager downloadManager, DownloadSettings settings, UiPreferencesRepository uiPreferences, bool closeToTray)
+    public MainWindowViewModel(
+        DownloadManager downloadManager,
+        DownloadSettings settings,
+        UiPreferencesRepository uiPreferences,
+        bool closeToTray,
+        DownloadDoubleClickAction doubleClickAction)
     {
-        _downloadListViewModel = new DownloadListViewModel(downloadManager, NavigateToSettings);
-        _settingsViewModel = new SettingsViewModel(settings, uiPreferences, NavigateToDownloads, closeToTray);
+        _settingsViewModel = new SettingsViewModel(settings, uiPreferences, NavigateToDownloads, closeToTray, doubleClickAction);
+        _downloadListViewModel = new DownloadListViewModel(
+            downloadManager, NavigateToSettings, () => _settingsViewModel.DoubleClickAction);
         _currentPageViewModel = _downloadListViewModel;
     }
 

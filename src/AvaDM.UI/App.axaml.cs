@@ -53,12 +53,13 @@ public partial class App : Application
             var settings = new DownloadSettings();
             var uiPreferences = new UiPreferencesRepository(settings.GetResolvedRepositoryPath());
 
-            var closeToTray = LoadStoredPreferences(uiPreferences);
+            var (closeToTray, doubleClickAction) = LoadStoredPreferences(uiPreferences);
 
             _httpClient = new HttpClient { Timeout = Timeout.InfiniteTimeSpan };
             var downloadManager = new DownloadManager(_httpClient, settings);
 
-            var mainWindowViewModel = new MainWindowViewModel(downloadManager, settings, uiPreferences, closeToTray);
+            var mainWindowViewModel = new MainWindowViewModel(
+                downloadManager, settings, uiPreferences, closeToTray, doubleClickAction);
             var window = new MainWindow { DataContext = mainWindowViewModel };
             desktop.MainWindow = window;
 
@@ -71,12 +72,14 @@ public partial class App : Application
 
     /// <summary>Overrides App.axaml's static "Dark" default with whatever the user last chose in
     /// Settings > Appearance, read synchronously before the window is created so there's no flash
-    /// of the wrong theme; also reads the close-to-tray preference the same way so
-    /// <see cref="TrayIconService"/> has it from the first frame. Both reads share one best-effort
-    /// try/catch, matching this method's original theme-only fallback style - a store that can't
-    /// be read (e.g. permissions issue) shouldn't block startup, it should just fall back to
-    /// defaults (static Dark, minimize-to-tray).</summary>
-    private static bool LoadStoredPreferences(UiPreferencesRepository uiPreferences)
+    /// of the wrong theme; also reads the close-to-tray and downloaded-item double-click
+    /// preferences the same way so <see cref="TrayIconService"/> and the downloads list have them
+    /// from the first frame. All reads share one best-effort try/catch, matching this method's
+    /// original theme-only fallback style - a store that can't be read (e.g. permissions issue)
+    /// shouldn't block startup, it should just fall back to defaults (static Dark, minimize-to-
+    /// tray, double-click opens the file).</summary>
+    private static (bool CloseToTray, DownloadDoubleClickAction DoubleClickAction) LoadStoredPreferences(
+        UiPreferencesRepository uiPreferences)
     {
         try
         {
@@ -89,13 +92,21 @@ public partial class App : Application
             }
 
             var storedCloseToTray = uiPreferences.GetValueAsync(UiPreferencesRepository.CloseToTrayKey).GetAwaiter().GetResult();
-            return bool.TryParse(storedCloseToTray, out var closeToTray) ? closeToTray : true;
+            var closeToTray = bool.TryParse(storedCloseToTray, out var parsedCloseToTray) ? parsedCloseToTray : true;
+
+            var storedDoubleClickAction = uiPreferences.GetValueAsync(UiPreferencesRepository.DoubleClickActionKey).GetAwaiter().GetResult();
+            var doubleClickAction = storedDoubleClickAction == "OpenContainingFolder"
+                ? DownloadDoubleClickAction.OpenContainingFolder
+                : DownloadDoubleClickAction.OpenFile;
+
+            return (closeToTray, doubleClickAction);
         }
         catch
         {
             // Best-effort: keep the static Dark theme default and fall back to minimize-to-tray
-            // if the preferences store can't be read, rather than blocking startup on it.
-            return true;
+            // and open-file-on-double-click if the preferences store can't be read, rather than
+            // blocking startup on it.
+            return (true, DownloadDoubleClickAction.OpenFile);
         }
     }
 }

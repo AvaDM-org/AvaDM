@@ -14,6 +14,7 @@ public sealed class UiPreferencesRepository(string dbPath)
 {
     public const string ThemeVariantKey = "ThemeVariant";
     public const string CloseToTrayKey = "CloseToTray";
+    public const string DoubleClickActionKey = "DoubleClickAction";
 
     private string ConnectionString { get; } = new SqliteConnectionStringBuilder { DataSource = dbPath }.ToString();
 

@@ -29,10 +29,17 @@ public enum DownloadListStatusFilter
 public sealed partial class DownloadListViewModel : ViewModelBase, IDisposable
 {
     private static readonly TimeSpan ReconcileInterval = TimeSpan.FromSeconds(1);
+    private static readonly TimeSpan SearchDebounceInterval = TimeSpan.FromMilliseconds(250);
 
     private readonly DownloadManager _downloadManager;
     private readonly Action _navigateToSettings;
+    private readonly Func<DownloadDoubleClickAction> _getDoubleClickAction;
     private readonly DispatcherTimer _reconcileTimer;
+
+    /// <summary>Debounces <see cref="SearchText"/> so <see cref="ApplyFilter"/> - an O(n) scan
+    /// plus O(n) list-diff per call - runs once typing pauses rather than on every keystroke,
+    /// which would otherwise stall the UI thread on a long download list.</summary>
+    private readonly DispatcherTimer _searchDebounceTimer;
     private bool _reconciling;
 
     /// <summary>Full row set, independent of the current filter/search - reconciliation and
@@ -121,14 +128,25 @@ public sealed partial class DownloadListViewModel : ViewModelBase, IDisposable
 
     public bool IsFilterFailed => StatusFilter == DownloadListStatusFilter.Failed;
 
-    public DownloadListViewModel(DownloadManager downloadManager, Action navigateToSettings)
+    public DownloadListViewModel(
+        DownloadManager downloadManager,
+        Action navigateToSettings,
+        Func<DownloadDoubleClickAction> getDoubleClickAction)
     {
         _downloadManager = downloadManager;
         _navigateToSettings = navigateToSettings;
+        _getDoubleClickAction = getDoubleClickAction;
 
         _reconcileTimer = new DispatcherTimer { Interval = ReconcileInterval };
         _reconcileTimer.Tick += async (_, _) => await ReconcileAsync();
         _reconcileTimer.Start();
+
+        _searchDebounceTimer = new DispatcherTimer { Interval = SearchDebounceInterval };
+        _searchDebounceTimer.Tick += (_, _) =>
+        {
+            _searchDebounceTimer.Stop();
+            ApplyFilter();
+        };
 
         _ = ReconcileAsync();
     }
@@ -196,7 +214,8 @@ public sealed partial class DownloadListViewModel : ViewModelBase, IDisposable
     partial void OnSearchTextChanged(string value)
     {
         _ = value;
-        ApplyFilter();
+        _searchDebounceTimer.Stop();
+        _searchDebounceTimer.Start();
     }
 
     /// <summary>Inserts a freshly-started download's row immediately (Add Download flow), or
@@ -225,7 +244,8 @@ public sealed partial class DownloadListViewModel : ViewModelBase, IDisposable
             return existing;
         }
 
-        var row = new DownloadRowViewModel(_downloadManager, record, handle, RequestRemove, RequestCancel, ShowToast);
+        var row = new DownloadRowViewModel(
+            _downloadManager, record, handle, RequestRemove, RequestCancel, ShowToast, _getDoubleClickAction);
         _allRows.Add(row);
         TrackRow(row);
         ApplyFilter();
@@ -286,7 +306,8 @@ public sealed partial class DownloadListViewModel : ViewModelBase, IDisposable
                         _downloadManager.GetActiveHandle(record.Id),
                         RequestRemove,
                         RequestCancel,
-                        ShowToast);
+                        ShowToast,
+                        _getDoubleClickAction);
                     _allRows.Add(newRow);
                     TrackRow(newRow);
                     changed = true;
@@ -352,5 +373,9 @@ public sealed partial class DownloadListViewModel : ViewModelBase, IDisposable
         || row.FileName.Contains(search, StringComparison.OrdinalIgnoreCase)
         || row.SourceUrl.Contains(search, StringComparison.OrdinalIgnoreCase);
 
-    public void Dispose() => _reconcileTimer.Stop();
+    public void Dispose()
+    {
+        _reconcileTimer.Stop();
+        _searchDebounceTimer.Stop();
+    }
 }

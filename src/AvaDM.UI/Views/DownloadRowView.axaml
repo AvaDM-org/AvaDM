@@ -20,10 +20,14 @@
             CornerRadius="{StaticResource RadiusCard}">
         <StackPanel>
 
-            <!-- Collapsed header -->
+            <!-- Collapsed header. DoubleTapped opens the completed download (file or containing
+                 folder, per Settings > "Downloaded item double-click") - see OnHeaderDoubleTapped
+                 in the code-behind, which ignores taps that land on a child Button so the row's
+                 own action buttons below aren't hijacked by the gesture. -->
             <Grid Margin="{StaticResource RowPadding}"
                   ColumnDefinitions="Auto,*,Auto,Auto"
-                  ColumnSpacing="{StaticResource SpaceMd}">
+                  ColumnSpacing="{StaticResource SpaceMd}"
+                  DoubleTapped="OnHeaderDoubleTapped">
 
                 <Button Grid.Column="0" Classes="icon"
                         Command="{Binding ToggleExpandedCommand}"
@@ -95,6 +99,9 @@
                     <Button Classes="icon" Content="&#10005;"
                             Command="{Binding CancelCommand}" IsVisible="{Binding CanCancel}"
                             ToolTip.Tip="Cancel" />
+                    <Button Classes="icon" Content="&#128193;"
+                            Command="{Binding OpenContainingFolderCommand}"
+                            ToolTip.Tip="Open containing folder" />
                     <Button Classes="icon" Content="&#128465;"
                             Command="{Binding RemoveCommand}"
                             ToolTip.Tip="Remove" />
