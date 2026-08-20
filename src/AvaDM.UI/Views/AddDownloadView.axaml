@@ -3,6 +3,7 @@
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              xmlns:vm="using:AvaDM.UI.ViewModels"
+             xmlns:controls="using:AvaDM.UI.Controls"
              mc:Ignorable="d" d:DesignWidth="440" d:DesignHeight="420"
              x:Class="AvaDM.UI.Views.AddDownloadView"
              x:DataType="vm:AddDownloadViewModel">
@@ -50,7 +51,9 @@
                     </Grid>
                     <Grid ColumnDefinitions="Auto,*" ColumnSpacing="{StaticResource SpaceSm}">
                         <TextBlock Grid.Column="0" Text="Speed limit" VerticalAlignment="Center" FontSize="{StaticResource BodyMdFontSize}" Foreground="{DynamicResource TextSecondaryBrush}" Width="90" />
-                        <TextBox Grid.Column="1" Text="{Binding SpeedLimitInput}" PlaceholderText="bytes/sec, or &quot;off&quot;" />
+                        <controls:SpeedLimitEditor Grid.Column="1"
+                                                    SpeedLimitBytesPerSecond="{Binding SpeedLimitBytesPerSecond}"
+                                                    HorizontalAlignment="Left" />
                     </Grid>
                 </StackPanel>
             </StackPanel>

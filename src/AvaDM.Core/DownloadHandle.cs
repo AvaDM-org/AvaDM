@@ -38,7 +38,7 @@ public enum ChunkStatus
 /// whole-file fallback path (no Range support) is represented as a single chunk spanning the
 /// entire file, so a UI can render chunk progress uniformly regardless of which path ran.
 /// </summary>
-public sealed record ChunkProgress(int Index, long StartByte, long EndByte, long BytesDownloaded, ChunkStatus Status)
+public sealed record ChunkProgress(int Index, long StartByte, long EndByte, long BytesDownloaded, ChunkStatus Status, double? SpeedBytesPerSecond)
 {
     public long TotalBytes => EndByte - StartByte + 1;
 }
@@ -55,9 +55,9 @@ public sealed class DownloadHandle
 
     private long _bytesDownloaded;
     private long _lastProgressReportTimestamp;
-    private long _startTimestamp;
     private volatile DownloadState _state = DownloadState.Pending;
     private volatile ChunkTracker[] _chunkTrackers = [];
+    private readonly SpeedTracker _speedTracker = new();
 
     internal DownloadHandle(Uri uri, string destinationPath, DownloadOptions options)
     {
@@ -130,6 +130,11 @@ public sealed class DownloadHandle
 
     public void SetSpeedLimit(long? bytesPerSecond) => SpeedLimiter.SetLimit(bytesPerSecond);
 
+    /// <summary>Current speed limit in bytes/sec, or <c>null</c> if unlimited - reflects the
+    /// live value after any <see cref="SetSpeedLimit"/> call, not just the value the download
+    /// started with.</summary>
+    public long? SpeedLimitBytesPerSecond => SpeedLimiter.CurrentLimitBytesPerSecond;
+
     public void Cancel() => CancellationTokenSource.Cancel();
 
     /// <summary>Kicks off <paramref name="run"/> against this handle's cancellation token and
@@ -138,7 +143,6 @@ public sealed class DownloadHandle
     /// return the handle immediately without waiting on the download.</summary>
     internal void Start(Func<CancellationToken, Task> run)
     {
-        _startTimestamp = Stopwatch.GetTimestamp();
         _state = DownloadState.Running;
         Completion = RunAndTrackAsync(run);
     }
@@ -238,16 +242,8 @@ public sealed class DownloadHandle
         }
         Interlocked.Exchange(ref _lastProgressReportTimestamp, now);
 
-        ProgressChanged?.Invoke(this, new DownloadProgress(State, BytesDownloaded, TotalBytes, ComputeAverageSpeed(now)));
+        ProgressChanged?.Invoke(this, new DownloadProgress(State, BytesDownloaded, TotalBytes, _speedTracker.AddSample(BytesDownloaded)));
         ChunksChanged?.Invoke(this, Chunks);
-    }
-
-    // Average throughput since the download started, not an instantaneous rate - simple and
-    // good enough for a status line; revisit with a sliding window if that's ever not enough.
-    private double? ComputeAverageSpeed(long now)
-    {
-        var elapsed = Stopwatch.GetElapsedTime(_startTimestamp, now);
-        return elapsed.TotalSeconds > 0 ? BytesDownloaded / elapsed.TotalSeconds : null;
     }
 
     /// <summary>Mutable per-chunk state, updated concurrently by that chunk's own download task
@@ -256,6 +252,7 @@ public sealed class DownloadHandle
     /// (<see cref="ToSnapshot"/>) never blocks the writer.</summary>
     private sealed class ChunkTracker(long start, long end, long initialBytesDownloaded = 0, ChunkStatus initialStatus = ChunkStatus.Pending)
     {
+        private readonly SpeedTracker _speedTracker = new();
         private long _bytesDownloaded = initialBytesDownloaded;
         private volatile int _status = (int)initialStatus;
 
@@ -263,7 +260,10 @@ public sealed class DownloadHandle
         public long SetBytes(long value) => Interlocked.Exchange(ref _bytesDownloaded, value);
         public void SetStatus(ChunkStatus status) => _status = (int)status;
 
-        public ChunkProgress ToSnapshot(int index) =>
-            new(index, start, end, Interlocked.Read(ref _bytesDownloaded), (ChunkStatus)_status);
+        public ChunkProgress ToSnapshot(int index)
+        {
+            var bytes = Interlocked.Read(ref _bytesDownloaded);
+            return new(index, start, end, bytes, (ChunkStatus)_status, _speedTracker.AddSample(bytes));
+        }
     }
 }

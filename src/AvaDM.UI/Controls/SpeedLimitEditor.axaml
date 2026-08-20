@@ -1,0 +1,28 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             mc:Ignorable="d" d:DesignWidth="260" d:DesignHeight="32"
+             x:Class="AvaDM.UI.Controls.SpeedLimitEditor"
+             x:CompileBindings="False">
+
+    <!-- Reusable speed-limit editor: a NumericUpDown in MB/s (spinner buttons give the
+         increment/decrement the raw bytes/sec TextBox couldn't) plus an Unlimited checkbox for
+         "no limit", replacing free-text byte counts everywhere a speed limit is edited (row
+         inline panel, Add Download advanced options, Settings). All state lives in code-behind
+         (SpeedLimitEditor.axaml.cs) and round-trips through the single bindable
+         SpeedLimitBytesPerSecond property - see that file for the MB<->bytes conversion. -->
+    <StackPanel Orientation="Horizontal" Spacing="{StaticResource SpaceSm}">
+        <NumericUpDown x:Name="MegabytesUpDown"
+                       Minimum="0.1" Maximum="10000" Increment="0.5"
+                       FormatString="0.##"
+                       Width="130"
+                       VerticalAlignment="Center" />
+        <TextBlock Text="MB/s"
+                   VerticalAlignment="Center"
+                   Foreground="{DynamicResource TextSecondaryBrush}" />
+        <CheckBox x:Name="UnlimitedCheckBox"
+                  Content="Unlimited"
+                  VerticalAlignment="Center" />
+    </StackPanel>
+</UserControl>

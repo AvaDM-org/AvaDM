@@ -31,7 +31,7 @@ public sealed partial class AddDownloadViewModel : ViewModelBase
     private string? _chunkCountInput;
 
     [ObservableProperty]
-    private string? _speedLimitInput;
+    private long? _speedLimitBytesPerSecond;
 
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(SubmitCommand))]
@@ -99,23 +99,6 @@ public sealed partial class AddDownloadViewModel : ViewModelBase
             return;
         }
 
-        long? speedLimit;
-        var text = SpeedLimitInput?.Trim();
-        if (string.IsNullOrEmpty(text) || text.Equals("off", StringComparison.OrdinalIgnoreCase))
-        {
-            speedLimit = null;
-        }
-        else if (long.TryParse(text, out var bps) && bps > 0)
-        {
-            speedLimit = bps;
-        }
-        else
-        {
-            ErrorMessage = "Speed limit must be a positive number of bytes/sec, or \"off\".";
-            IsBusy = false;
-            return;
-        }
-
         var destination = string.IsNullOrWhiteSpace(DestinationPath) ? null : DestinationPath.Trim();
 
         IsBusy = true;
@@ -126,7 +109,7 @@ public sealed partial class AddDownloadViewModel : ViewModelBase
         _pendingOptions = new DownloadOptions
         {
             ChunkCount = chunkCount,
-            InitialSpeedLimitBytesPerSecond = speedLimit,
+            InitialSpeedLimitBytesPerSecond = SpeedLimitBytesPerSecond,
         };
 
         if (conflict.HasConflict && conflict.ExistingRecord is not null)

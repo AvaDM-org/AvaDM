@@ -25,7 +25,7 @@ public sealed partial class SettingsViewModel : ViewModelBase
     private int _chunkCount;
 
     [ObservableProperty]
-    private string? _speedLimitInput;
+    private long? _speedLimitBytesPerSecond;
 
     [ObservableProperty]
     private string? _repositoryPathInput;
@@ -72,7 +72,7 @@ public sealed partial class SettingsViewModel : ViewModelBase
 
         _downloadDirectory = settings.DefaultDownloadDirectory;
         _chunkCount = settings.DefaultChunkCount;
-        _speedLimitInput = settings.DefaultSpeedLimitBytesPerSecond?.ToString() ?? string.Empty;
+        _speedLimitBytesPerSecond = settings.DefaultSpeedLimitBytesPerSecond;
         _repositoryPathInput = settings.RepositoryPath ?? string.Empty;
         _maxRetryAttempts = settings.DefaultMaxRetryAttempts;
         _retryBaseDelaySecondsInput = settings.DefaultRetryBaseDelay.TotalSeconds.ToString("0.##");
@@ -140,20 +140,6 @@ public sealed partial class SettingsViewModel : ViewModelBase
             return;
         }
 
-        var speedLimitText = SpeedLimitInput?.Trim();
-        long? speedLimit = null;
-        if (!string.IsNullOrEmpty(speedLimitText)
-            && !speedLimitText.Equals("off", StringComparison.OrdinalIgnoreCase))
-        {
-            if (!long.TryParse(speedLimitText, out var parsedSpeedLimit) || parsedSpeedLimit <= 0)
-            {
-                ErrorMessage = "Speed limit must be a positive number of bytes/sec, or blank/\"off\" for no limit.";
-                return;
-            }
-
-            speedLimit = parsedSpeedLimit;
-        }
-
         if (!double.TryParse(RetryBaseDelaySecondsInput, out var retryBaseDelaySeconds)
             || retryBaseDelaySeconds <= 0)
         {
@@ -170,7 +156,7 @@ public sealed partial class SettingsViewModel : ViewModelBase
 
         _settings.DefaultDownloadDirectory = DownloadDirectory.Trim();
         _settings.DefaultChunkCount = ChunkCount;
-        _settings.DefaultSpeedLimitBytesPerSecond = speedLimit;
+        _settings.DefaultSpeedLimitBytesPerSecond = SpeedLimitBytesPerSecond;
         _settings.RepositoryPath = string.IsNullOrWhiteSpace(RepositoryPathInput)
             ? null
             : RepositoryPathInput.Trim();

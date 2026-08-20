@@ -25,6 +25,18 @@ internal sealed class SpeedLimiter
         _lastRefillTimestamp = Stopwatch.GetTimestamp();
     }
 
+    /// <summary>Current limit, or <c>null</c> if unlimited - lets a UI reflect the live value
+    /// (e.g. after a resumed download seeds it from <see cref="DownloadOptions"/>) rather than
+    /// only ever being able to set it.</summary>
+    public long? CurrentLimitBytesPerSecond
+    {
+        get
+        {
+            lock (_lock)
+                return _bytesPerSecond;
+        }
+    }
+
     public void SetLimit(long? bytesPerSecond)
     {
         lock (_lock)

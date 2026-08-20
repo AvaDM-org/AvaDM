@@ -180,7 +180,8 @@ internal sealed class DownloadDashboard
     private static string FormatChunkLine(ChunkProgress chunk)
     {
         var percent = chunk.TotalBytes > 0 ? chunk.BytesDownloaded * 100.0 / chunk.TotalBytes : 0.0;
-        return $"    chunk {chunk.Index,-3} {chunk.Status,-11} {chunk.BytesDownloaded:N0}/{chunk.TotalBytes:N0} bytes ({percent:0.0}%) " +
+        var speed = chunk.Status == ChunkStatus.Downloading && chunk.SpeedBytesPerSecond is { } s ? $"{s:N0} B/s" : "-";
+        return $"    chunk {chunk.Index,-3} {chunk.Status,-11} {chunk.BytesDownloaded:N0}/{chunk.TotalBytes:N0} bytes ({percent:0.0}%) @ {speed} " +
                $"[{chunk.StartByte:N0}-{chunk.EndByte:N0}]";
     }
 }

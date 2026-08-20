@@ -34,7 +34,12 @@ public sealed partial class ChunkRowViewModel : ViewModelBase
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(StatusText))]
     [NotifyPropertyChangedFor(nameof(StatusChipClass))]
+    [NotifyPropertyChangedFor(nameof(SpeedText))]
     private ChunkStatus _status;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(SpeedText))]
+    private double? _speedBytesPerSecond;
 
     public ChunkRowViewModel(ChunkProgress progress) => UpdateFrom(progress);
 
@@ -45,6 +50,12 @@ public sealed partial class ChunkRowViewModel : ViewModelBase
     public string ByteRangeText => FormatHelpers.FormatByteRange(StartByte, EndByte);
 
     public string StatusText => Status.ToString();
+
+    /// <summary>"-" once the chunk isn't actively downloading (pending/completed/failed),
+    /// matching <see cref="DownloadRowViewModel.SpeedText"/>'s same gating for the aggregate row.</summary>
+    public string SpeedText => Status == ChunkStatus.Downloading
+        ? FormatHelpers.FormatSpeed(SpeedBytesPerSecond)
+        : "-";
 
     /// <summary>Style-class name for the reusable status chip control, matching the semantic
     /// mapping documented in <c>Styles/StatusChip.axaml</c>.</summary>
@@ -67,5 +78,6 @@ public sealed partial class ChunkRowViewModel : ViewModelBase
         EndByte = progress.EndByte;
         BytesDownloaded = progress.BytesDownloaded;
         Status = progress.Status;
+        SpeedBytesPerSecond = progress.SpeedBytesPerSecond;
     }
 }

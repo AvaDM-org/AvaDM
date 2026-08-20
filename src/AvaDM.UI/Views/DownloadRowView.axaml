@@ -109,15 +109,14 @@
                     Margin="{StaticResource RowPadding}">
                 <StackPanel Spacing="{StaticResource SpaceSm}" Margin="{StaticResource PanelPadding}">
 
-                    <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="{StaticResource SpaceSm}">
+                    <Grid ColumnDefinitions="Auto,*" ColumnSpacing="{StaticResource SpaceSm}">
                         <TextBlock Grid.Column="0" Text="Speed limit"
                                    FontSize="{StaticResource BodyMdFontSize}"
                                    Foreground="{DynamicResource TextSecondaryBrush}"
                                    VerticalAlignment="Center" />
-                        <TextBox Grid.Column="1" Text="{Binding SpeedLimitInput}"
-                                 PlaceholderText="bytes/sec, or &quot;off&quot;" />
-                        <Button Grid.Column="2" Classes="secondary" Content="Apply"
-                                Command="{Binding ApplySpeedLimitCommand}" />
+                        <controls:SpeedLimitEditor Grid.Column="1"
+                                                    SpeedLimitBytesPerSecond="{Binding SpeedLimitBytesPerSecond}"
+                                                    HorizontalAlignment="Left" />
                     </Grid>
 
                     <ItemsControl ItemsSource="{Binding Chunks}">
@@ -128,7 +127,7 @@
                         </ItemsControl.ItemsPanel>
                         <ItemsControl.ItemTemplate>
                             <DataTemplate x:DataType="vm:ChunkRowViewModel">
-                                <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="{StaticResource SpaceSm}">
+                                <Grid ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="{StaticResource SpaceSm}">
                                     <TextBlock Grid.Column="0" Text="{Binding ByteRangeText}"
                                                FontFamily="{StaticResource MonoFontFamily}"
                                                FontSize="{StaticResource NumericMdFontSize}"
@@ -138,7 +137,13 @@
                                     <ProgressBar Grid.Column="1" Classes="chunk"
                                                  Value="{Binding ProgressPercent}" Minimum="0" Maximum="100"
                                                  VerticalAlignment="Center" />
-                                    <controls:StatusChip Grid.Column="2"
+                                    <TextBlock Grid.Column="2" Text="{Binding SpeedText}"
+                                               FontFamily="{StaticResource MonoFontFamily}"
+                                               FontSize="{StaticResource NumericMdFontSize}"
+                                               FontWeight="{StaticResource NumericMdFontWeight}"
+                                               Foreground="{DynamicResource TextSecondaryBrush}"
+                                               VerticalAlignment="Center" />
+                                    <controls:StatusChip Grid.Column="3"
                                                           StatusClass="{Binding StatusChipClass}"
                                                           StatusText="{Binding StatusText}"
                                                           VerticalAlignment="Center" />

@@ -3,6 +3,7 @@
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              xmlns:vm="using:AvaDM.UI.ViewModels"
+             xmlns:controls="using:AvaDM.UI.Controls"
              mc:Ignorable="d" d:DesignWidth="900" d:DesignHeight="600"
              x:Class="AvaDM.UI.Views.SettingsView"
              x:DataType="vm:SettingsViewModel">
@@ -88,8 +89,9 @@
                                    FontSize="{StaticResource BodyMdFontSize}"
                                    Foreground="{DynamicResource TextSecondaryBrush}"
                                    VerticalAlignment="Center" />
-                        <TextBox Grid.Column="1" Text="{Binding SpeedLimitInput, Mode=TwoWay}"
-                                 PlaceholderText="bytes/sec, or &quot;off&quot;" />
+                        <controls:SpeedLimitEditor Grid.Column="1"
+                                                    SpeedLimitBytesPerSecond="{Binding SpeedLimitBytesPerSecond, Mode=TwoWay}"
+                                                    HorizontalAlignment="Left" />
                     </Grid>
                 </StackPanel>
             </Border>

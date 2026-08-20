@@ -116,11 +116,12 @@ public sealed partial class DownloadRowViewModel : ViewModelBase
     [ObservableProperty]
     private bool _isExpanded;
 
-    /// <summary>Free-text bound to the inline speed-limit field shown only while expanded.
-    /// Parsed (bytes/sec, blank/"off" clears the limit) by <see cref="ApplySpeedLimit"/> rather
-    /// than on every keystroke.</summary>
+    /// <summary>Bound to the inline <see cref="Controls.SpeedLimitEditor"/> shown only while
+    /// expanded. Applied to the live handle immediately on change (see
+    /// <see cref="OnSpeedLimitBytesPerSecondChanged"/>) rather than needing an explicit Apply
+    /// step, since <see cref="DownloadHandle.SetSpeedLimit"/> is cheap to call repeatedly.</summary>
     [ObservableProperty]
-    private string? _speedLimitInput;
+    private long? _speedLimitBytesPerSecond;
 
     public ObservableCollection<ChunkRowViewModel> Chunks { get; } = new();
 
@@ -204,6 +205,7 @@ public sealed partial class DownloadRowViewModel : ViewModelBase
         State = handle.State;
         BytesDownloaded = handle.BytesDownloaded;
         TotalBytes = handle.TotalBytes;
+        SpeedLimitBytesPerSecond = handle.SpeedLimitBytesPerSecond;
         SyncChunksFrom(handle.Chunks);
 
         handle.ProgressChanged += OnProgressChanged;
@@ -305,22 +307,7 @@ public sealed partial class DownloadRowViewModel : ViewModelBase
     [RelayCommand]
     private void ToggleExpanded() => IsExpanded = !IsExpanded;
 
-    [RelayCommand]
-    private void ApplySpeedLimit()
-    {
-        if (_handle is null)
-            return;
-
-        var text = SpeedLimitInput?.Trim();
-        if (string.IsNullOrEmpty(text) || text.Equals("off", StringComparison.OrdinalIgnoreCase))
-        {
-            _handle.SetSpeedLimit(null);
-            return;
-        }
-
-        if (long.TryParse(text, out var bytesPerSecond) && bytesPerSecond > 0)
-            _handle.SetSpeedLimit(bytesPerSecond);
-    }
+    partial void OnSpeedLimitBytesPerSecondChanged(long? value) => _handle?.SetSpeedLimit(value);
 
     [RelayCommand]
     private void Remove() => _onRemoveRequested(this);
