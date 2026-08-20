@@ -213,6 +213,17 @@ public sealed class DownloadHandle
         ReportProgress();
     }
 
+    /// <summary>Overwrites one chunk's downloaded-byte count outright rather than adding to it,
+    /// keeping the aggregate total consistent via the delta. Used when a non-resumable attempt
+    /// (no Range support) restarts from byte 0 - e.g. after a pause - so bytes credited by the
+    /// abandoned attempt don't linger and make progress run ahead of what's actually on disk.</summary>
+    internal void SetChunkBytesDownloaded(int chunkIndex, long value)
+    {
+        var previous = _chunkTrackers[chunkIndex].SetBytes(value);
+        Interlocked.Add(ref _bytesDownloaded, value - previous);
+        ReportProgress(force: true);
+    }
+
     internal void ReportProgress(bool force = false)
     {
         if (ProgressChanged is null && ChunksChanged is null)
@@ -249,6 +260,7 @@ public sealed class DownloadHandle
         private volatile int _status = (int)initialStatus;
 
         public void AddBytes(int count) => Interlocked.Add(ref _bytesDownloaded, count);
+        public long SetBytes(long value) => Interlocked.Exchange(ref _bytesDownloaded, value);
         public void SetStatus(ChunkStatus status) => _status = (int)status;
 
         public ChunkProgress ToSnapshot(int index) =>

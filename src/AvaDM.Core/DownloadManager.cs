@@ -100,8 +100,24 @@ public sealed class DownloadManager
         }
 
         var handle = _downloader.StartDownload(uri, resolvedPath, options);
-        var id = Guid.NewGuid();
-        await _repository.InsertAsync(id, uri.AbsoluteUri, resolvedPath, DownloadState.Running, handle.TotalBytes);
+
+        // Resume/Overwrite restart the *same* (Uri, DestinationPath) row that CheckConflictAsync
+        // already found - e.g. paused, app closed, reopened, resumed. That row is still in the
+        // table, so this must update it in place (same Id) rather than INSERT a second row, which
+        // would trip the UNIQUE(Uri, DestinationPath) constraint and, even if it didn't, would
+        // hand back a new Id that orphans a UI row already keyed on the old one. RenameDestination
+        // targets a path already confirmed conflict-free above, so it always gets a fresh row.
+        Guid id;
+        if (conflict.HasConflict && resolution is ConflictResolution.Resume or ConflictResolution.Overwrite)
+        {
+            id = conflict.ExistingRecord!.Id;
+            await _repository.ResetForRestartAsync(id, DownloadState.Running, handle.TotalBytes);
+        }
+        else
+        {
+            id = Guid.NewGuid();
+            await _repository.InsertAsync(id, uri.AbsoluteUri, resolvedPath, DownloadState.Running, handle.TotalBytes);
+        }
         _activeHandles[id] = handle;
         SyncToRepository(id, handle);
 

@@ -94,6 +94,32 @@ public sealed class DownloadRepository(string dbPath)
         return new DownloadRecord(id, uri, destinationPath, state, totalBytes, 0, createdAt, null);
     }
 
+    /// <summary>Re-arms an existing row for a resume/overwrite restart: same <paramref name="id"/>
+    /// and <c>CreatedAt</c> as before (the row's identity and history don't change just because
+    /// the process restarted), but state/size/progress reset to reflect the fresh attempt.
+    /// Used instead of <see cref="InsertAsync"/> when <see cref="DownloadManager.AddDownloadAsync"/>
+    /// resolves a conflict via Resume or Overwrite, since the conflicting row (same Uri +
+    /// DestinationPath) is still present and a second INSERT would trip the UNIQUE constraint -
+    /// and would also hand back a new Id, orphaning any UI row already keyed on the old one.</summary>
+    public async Task<DownloadRecord> ResetForRestartAsync(Guid id, DownloadState state, long totalBytes)
+    {
+        using var connection = OpenConnection();
+        var lastModifiedAt = DateTime.UtcNow;
+        await connection.ExecuteAsync(
+            "UPDATE Downloads SET State = @State, TotalBytes = @TotalBytes, BytesDownloaded = 0, LastModifiedAt = @LastModifiedAt WHERE Id = @Id",
+            new
+            {
+                Id = id.ToString(),
+                State = (int)state,
+                TotalBytes = totalBytes,
+                LastModifiedAt = lastModifiedAt.ToString("O"),
+            });
+
+        var row = await GetByIdAsync(id)
+            ?? throw new InvalidOperationException($"ResetForRestartAsync: no row found for id {id} - caller must pass the id of an existing record.");
+        return row;
+    }
+
     /// <summary>Best-effort progress checkpoint. Callers driving this from a fire-and-forget
     /// event handler are expected to catch/log any exception themselves - this method lets
     /// failures propagate rather than swallowing them, so a caller that does want to observe
