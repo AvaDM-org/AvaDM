@@ -58,8 +58,10 @@ public static class FormatHelpers
         return $"{span.Seconds}s";
     }
 
-    /// <summary>Byte-range text for a chunk row. Reuses the exact <c>[start-end]</c> bracket
-    /// convention from <c>AvaDM.Console/DownloadDashboard.cs</c>'s <c>FormatChunkLine</c> rather
-    /// than inventing a new one.</summary>
-    public static string FormatByteRange(long startByte, long endByte) => $"[{startByte:N0}-{endByte:N0}]";
+    /// <summary>Byte-range text for a chunk row, e.g. "[0 B-159.0 MB]". Uses the same dynamic
+    /// unit formatting as <see cref="FormatBytes"/> on each end rather than raw byte counts, and
+    /// keeps the <c>[start-end]</c> bracket convention from
+    /// <c>AvaDM.Console/DownloadDashboard.cs</c>'s <c>FormatChunkLine</c>.</summary>
+    public static string FormatByteRange(long startByte, long endByte) =>
+        $"[{FormatBytes(startByte)}-{FormatBytes(endByte)}]";
 }
