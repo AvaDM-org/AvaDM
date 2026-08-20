@@ -3,9 +3,12 @@ using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Markup.Xaml;
 using Avalonia.Styling;
+using Avalonia.Threading;
 using AvaDM.Core;
+using AvaDM.Core.Diagnostics;
 using AvaDM.UI.Services;
 using AvaDM.UI.ViewModels;
+using Serilog;
 
 namespace AvaDM.UI;
 
@@ -30,6 +33,19 @@ public partial class App : Application
 
     public override void OnFrameworkInitializationCompleted()
     {
+        // Registered before anything else runs, per Avalonia's documented strategy - covers
+        // exceptions that escape the UI thread's message loop that AppDomain.UnhandledException
+        // and TaskScheduler.UnobservedTaskException (installed in Program.Main) don't catch.
+        // e.Handled is deliberately left false: this is a download manager mid-transfer, and
+        // Avalonia's own docs warn that continuing after an unknown UI exception can leave the
+        // app in an inconsistent state - safer to log, offer to report, and let it terminate.
+        Dispatcher.UIThread.UnhandledException += (_, e) =>
+        {
+            Log.Fatal(e.Exception, "Unhandled UI thread exception");
+            Log.CloseAndFlush();
+            CrashReporter.Report(e.Exception);
+        };
+
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
             // No DI container, per the plan - build the small object graph by hand and pass

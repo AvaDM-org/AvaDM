@@ -170,7 +170,11 @@ public sealed class DownloadHandle
         }
     }
 
-    internal void Log(string message) => LogMessage?.Invoke(this, message);
+    internal void Log(string message)
+    {
+        Serilog.Log.Information("[{Destination}] {Message}", DestinationPath, message);
+        LogMessage?.Invoke(this, message);
+    }
 
     /// <summary>Establishes the chunk layout (index, byte range, initial Pending status) before
     /// any chunk task starts writing. Called once per download - by <see cref="Downloader"/>

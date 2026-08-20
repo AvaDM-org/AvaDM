@@ -1,6 +1,7 @@
 using Avalonia;
 using Avalonia.Styling;
 using AvaDM.Core;
+using AvaDM.Core.Diagnostics;
 using AvaDM.UI.Services;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -83,6 +84,8 @@ public sealed partial class SettingsViewModel : ViewModelBase
 
     public string ResolvedRepositoryPathHint => _settings.GetResolvedRepositoryPath();
 
+    public string LogDirectoryHint => AppLogging.LogDirectory;
+
     public bool HasError => !string.IsNullOrEmpty(ErrorMessage);
 
     public bool HasStatusMessage => !string.IsNullOrEmpty(StatusMessage);
@@ -97,6 +100,9 @@ public sealed partial class SettingsViewModel : ViewModelBase
 
     [RelayCommand]
     private void CloseSettings() => _navigateToDownloads();
+
+    [RelayCommand]
+    private void OpenLogFolder() => CrashReporter.OpenLogFolder();
 
     [RelayCommand]
     private async Task SelectCloseToTray()

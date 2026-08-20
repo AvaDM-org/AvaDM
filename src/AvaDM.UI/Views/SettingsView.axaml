@@ -119,6 +119,19 @@
                                  Text="{Binding RepositoryPathInput, Mode=TwoWay}"
                                  PlaceholderText="{Binding ResolvedRepositoryPathHint}" />
                     </Grid>
+
+                    <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="{StaticResource SpaceSm}">
+                        <TextBlock Grid.Column="0" Text="Log files"
+                                   FontSize="{StaticResource BodyMdFontSize}"
+                                   Foreground="{DynamicResource TextSecondaryBrush}"
+                                   VerticalAlignment="Center" />
+                        <SelectableTextBlock Grid.Column="1" Text="{Binding LogDirectoryHint}"
+                                              FontSize="{StaticResource BodyMdFontSize}"
+                                              Foreground="{DynamicResource TextSecondaryBrush}"
+                                              VerticalAlignment="Center" />
+                        <Button Grid.Column="2" Classes="secondary" Content="Open"
+                                Command="{Binding OpenLogFolderCommand}" />
+                    </Grid>
                 </StackPanel>
             </Border>
 

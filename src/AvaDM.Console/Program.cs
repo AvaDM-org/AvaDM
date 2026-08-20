@@ -6,6 +6,10 @@
 
 using AvaDM.Console;
 using AvaDM.Core;
+using AvaDM.Core.Diagnostics;
+
+AppLogging.Initialize();
+AppLogging.InstallGlobalExceptionHandlers(CrashReporter.Report);
 
 var dashboard = new DownloadDashboard();
 
