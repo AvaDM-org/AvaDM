@@ -11,7 +11,7 @@
          retrieves this via the static TrayIcon.GetIcons(this) attached-property getter. -->
     <TrayIcon.Icons>
         <TrayIcons>
-            <TrayIcon Icon="/Assets/AvaDMTray.ico" ToolTipText="AvaDM" />
+            <TrayIcon Icon="/Assets/avadm-logo.ico" ToolTipText="AvaDM" />
         </TrayIcons>
     </TrayIcon.Icons>
 

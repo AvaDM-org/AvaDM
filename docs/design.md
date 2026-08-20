@@ -1,10 +1,13 @@
 ---
-version: "1.0.1"
+version: "1.0.2"
 # 1.0.1: dark palette's primary/primary-hover/primary-pressed shifted one step darker
 # (values reused from the existing ramp, none invented) after the polish-pass contrast
 # spot-check found on-primary-on-primary at ~3.47:1 in dark mode, below the ~4.5:1 floor
 # this doc itself sets below. New dark on-primary/primary is ~5.37:1. Light palette was
 # already passing (~5.38:1) and is unchanged.
+# 1.0.2: added the branded app icon (Assets/avadm-logo.ico + avadm-logo-{16..1024}.png),
+# replacing the placeholder Assets/AvaDMTray.ico. Wired into ApplicationIcon, the
+# MainWindow title-bar icon, and the tray icon.
 name: "AvaDM Desktop UI"
 description: "Design system for the AvaDM Avalonia desktop client: a flat, dense, utility-app look for a cross-platform download manager. Two built-in palettes (dark default, light) plus a token contract so users can create or import their own palette without touching layout or component code."
 palette:
@@ -102,6 +105,10 @@ components:
     track: "surface-alt"
     fill: "primary (aggregate) — flat fill, no gradient, no shimmer"
     radius: "control"
+assets:
+  logo:
+    files: "Assets/avadm-logo.ico, Assets/avadm-logo-{16,32,48,64,128,256,512,1024}.png"
+    usage: "Windows exe icon (ApplicationIcon), MainWindow title-bar/taskbar icon, tray icon — all via the .ico. The individual PNG sizes are held for uses the .ico doesn't cover: a Linux .desktop icon, packaging/installers, an About dialog, and store/marketing listings."
 ---
 # AvaDM Desktop UI
 
@@ -151,6 +158,9 @@ This is the part that matters most beyond "look good": the UI must never hardcod
 - **Fallback, not failure.** If an imported palette is missing a key, the app should fall back to the built-in Dark value for that key rather than rendering unstyled or crashing — validate the full key set on import and warn the user about anything missing, don't silently accept a partial palette either.
 - **Contrast floor.** Whatever the hues, `text-primary` on `background`/`surface` and `on-primary` on `primary` should stay at roughly 4.5:1 contrast or better. Worth a validation check in the palette import UI later so a bad custom palette doesn't ship a screen nobody can read.
 - File format for a palette (JSON vs. an `.axaml` resource dictionary vs. something else) is an implementation decision for whoever builds the import feature — not fixed here. What's fixed is the key set and the semantic contract above.
+
+## Branding & App Icon
+The app icon is `Assets/avadm-logo.ico` (multi-resolution) plus standalone `Assets/avadm-logo-{16,32,48,64,128,256,512,1024}.png` raster exports at each size. The `.ico` is wired in three places: `AvaDM.UI.csproj`'s `ApplicationIcon` (the compiled exe's icon on Windows), `MainWindow`'s `Icon` attribute (title bar and taskbar/dock), and `App.axaml`'s `TrayIcon` (system tray). All Assets files are pulled in as Avalonia resources via a single `Assets/**` glob rather than listing them one by one, so a future asset just needs to be dropped in the folder. The standalone PNGs aren't referenced from XAML yet — they exist for icon needs outside Avalonia's resource system (a Linux `.desktop` file, OS packaging/installers, an About dialog, store listings) and should be reached for there instead of re-deriving a raster from the `.ico`.
 
 ## Guardrails
 - Flat fills only. No gradients, no drop shadows beyond the 1px `border`, no glow/blur.
