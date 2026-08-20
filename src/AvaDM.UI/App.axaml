@@ -6,6 +6,15 @@
                   overrides this at startup from the saved UiPreferencesRepository choice, and
                   Settings > Appearance changes it live thereafter. -->
 
+    <!-- No x:Name: Application isn't a NameScope root the way a Window/UserControl is, so a
+         named field here wouldn't actually be generated in App.axaml.cs. App.axaml.cs instead
+         retrieves this via the static TrayIcon.GetIcons(this) attached-property getter. -->
+    <TrayIcon.Icons>
+        <TrayIcons>
+            <TrayIcon Icon="/Assets/AvaDMTray.ico" ToolTipText="AvaDM" />
+        </TrayIcons>
+    </TrayIcon.Icons>
+
     <Application.Resources>
         <ResourceDictionary>
             <ResourceDictionary.ThemeDictionaries>

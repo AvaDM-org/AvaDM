@@ -23,4 +23,8 @@
   <ItemGroup>
     <ProjectReference Include="..\AvaDM.Core\AvaDM.Core.csproj" />
   </ItemGroup>
+
+  <ItemGroup>
+    <AvaloniaResource Include="Assets/AvaDMTray.ico" />
+  </ItemGroup>
 </Project>

@@ -52,10 +52,19 @@ public sealed partial class SettingsViewModel : ViewModelBase
     [NotifyPropertyChangedFor(nameof(IsLightSelected))]
     private bool _isDarkTheme;
 
+    /// <summary>Whether closing the main window minimizes to tray (true) instead of exiting the
+    /// app (false). Persisted immediately on change, same as the theme toggle above; also read
+    /// by <see cref="Services.TrayIconService"/> at window-close time.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsCloseToTraySelected))]
+    [NotifyPropertyChangedFor(nameof(IsCloseAppSelected))]
+    private bool _closeToTray;
+
     public SettingsViewModel(
         DownloadSettings settings,
         UiPreferencesRepository uiPreferences,
-        Action navigateToDownloads)
+        Action navigateToDownloads,
+        bool closeToTray)
     {
         _settings = settings;
         _uiPreferences = uiPreferences;
@@ -69,6 +78,7 @@ public sealed partial class SettingsViewModel : ViewModelBase
         _retryBaseDelaySecondsInput = settings.DefaultRetryBaseDelay.TotalSeconds.ToString("0.##");
         _perAttemptTimeoutSecondsInput = settings.DefaultPerAttemptTimeout.TotalSeconds.ToString("0.##");
         _isDarkTheme = Application.Current!.RequestedThemeVariant == ThemeVariant.Dark;
+        _closeToTray = closeToTray;
     }
 
     public string ResolvedRepositoryPathHint => _settings.GetResolvedRepositoryPath();
@@ -81,8 +91,26 @@ public sealed partial class SettingsViewModel : ViewModelBase
 
     public bool IsLightSelected => !IsDarkTheme;
 
+    public bool IsCloseToTraySelected => CloseToTray;
+
+    public bool IsCloseAppSelected => !CloseToTray;
+
     [RelayCommand]
     private void CloseSettings() => _navigateToDownloads();
+
+    [RelayCommand]
+    private async Task SelectCloseToTray()
+    {
+        CloseToTray = true;
+        await _uiPreferences.SetValueAsync(UiPreferencesRepository.CloseToTrayKey, "true");
+    }
+
+    [RelayCommand]
+    private async Task SelectCloseApp()
+    {
+        CloseToTray = false;
+        await _uiPreferences.SetValueAsync(UiPreferencesRepository.CloseToTrayKey, "false");
+    }
 
     [RelayCommand]
     private async Task SelectDarkTheme()

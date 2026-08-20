@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.ComponentModel;
 using AvaDM.Core;
 using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
@@ -39,6 +40,30 @@ public sealed partial class DownloadListViewModel : ViewModelBase, IDisposable
     private readonly List<DownloadRowViewModel> _allRows = [];
 
     public ObservableCollection<DownloadRowViewModel> FilteredDownloads { get; } = new();
+
+    /// <summary>Fires whenever a row is added, removed, or changes <see cref="DownloadRowViewModel.DisplayStatus"/>
+    /// (start, pause, resume, complete, fail, handle attach/detach) - i.e. whenever the set of
+    /// "what's currently happening" genuinely changes, not on every progress tick. Used by
+    /// <see cref="AvaDM.UI.Services.TrayIconService"/> to rebuild the tray menu's structure only
+    /// at meaningful transitions instead of polling on a timer (tried and reverted - see that
+    /// class's doc comment) or relying solely on the unreliable <c>NativeMenu.NeedsUpdate</c>
+    /// event. Progress *percentage* text is a separate concern, kept live by a continuously-
+    /// running timer - see <see cref="AvaDM.UI.Services.TrayIconService.UpdateLiveProgress"/> -
+    /// so this event isn't what drives that.</summary>
+    public event EventHandler? DownloadsChanged;
+
+    private void RaiseDownloadsChanged() => DownloadsChanged?.Invoke(this, EventArgs.Empty);
+
+    /// <summary>Subscribes to a newly-added row's status transitions so <see cref="DownloadsChanged"/>
+    /// fires for it. Paired with the unsubscribe in <see cref="RemoveRow"/> - every row added
+    /// via <see cref="AddOrUpdateRow"/> or <see cref="ReconcileAsync"/> must go through this.</summary>
+    private void TrackRow(DownloadRowViewModel row) => row.PropertyChanged += OnRowPropertyChanged;
+
+    private void OnRowPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(DownloadRowViewModel.DisplayStatus))
+            RaiseDownloadsChanged();
+    }
 
     /// <summary>Transient toast/snackbar notifications from non-terminal
     /// <see cref="AvaDM.Core.DownloadHandle.LogMessage"/> events across all rows - see
@@ -171,9 +196,19 @@ public sealed partial class DownloadListViewModel : ViewModelBase, IDisposable
 
         var row = new DownloadRowViewModel(_downloadManager, record, handle, RequestRemove, ShowToast);
         _allRows.Add(row);
+        TrackRow(row);
         ApplyFilter();
+        RaiseDownloadsChanged();
         return row;
     }
+
+    /// <summary>Snapshot of rows that are actively downloading right now (Running only),
+    /// independent of the UI's current filter/search - used by <see cref="AvaDM.UI.Services.TrayIconService"/>
+    /// to populate the tray menu's per-download entries. Deliberately narrower than the "Active"
+    /// toolbar filter (which also includes Paused/Pending/Interrupted): the tray menu is meant to
+    /// be a quick glance at in-progress transfers, not a full queue view.</summary>
+    public IReadOnlyList<DownloadRowViewModel> GetDownloadingDownloads() =>
+        _allRows.Where(r => r.DisplayStatus == DownloadDisplayStatus.Running).ToList();
 
     /// <summary>Drops a row from the list (Remove Download flow) and unhooks its handle events.</summary>
     public void RemoveRow(Guid id)
@@ -182,9 +217,11 @@ public sealed partial class DownloadListViewModel : ViewModelBase, IDisposable
         if (row is null)
             return;
 
+        row.PropertyChanged -= OnRowPropertyChanged;
         row.Detach();
         _allRows.Remove(row);
         FilteredDownloads.Remove(row);
+        RaiseDownloadsChanged();
     }
 
     /// <summary>Merges a fresh repository snapshot into <see cref="_allRows"/>: adds rows for
@@ -212,12 +249,14 @@ public sealed partial class DownloadListViewModel : ViewModelBase, IDisposable
                 var existing = _allRows.FirstOrDefault(r => r.Id == record.Id);
                 if (existing is null)
                 {
-                    _allRows.Add(new DownloadRowViewModel(
+                    var newRow = new DownloadRowViewModel(
                         _downloadManager,
                         record,
                         _downloadManager.GetActiveHandle(record.Id),
                         RequestRemove,
-                        ShowToast));
+                        ShowToast);
+                    _allRows.Add(newRow);
+                    TrackRow(newRow);
                     changed = true;
                 }
                 else if (!existing.HasActiveHandle)
@@ -232,6 +271,10 @@ public sealed partial class DownloadListViewModel : ViewModelBase, IDisposable
 
             if (changed || removed.Count > 0)
                 ApplyFilter();
+
+            // removed.Count > 0 already raised once per row via RemoveRow above.
+            if (changed)
+                RaiseDownloadsChanged();
         }
         finally
         {

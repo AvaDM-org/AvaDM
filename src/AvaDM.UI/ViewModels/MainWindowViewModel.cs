@@ -22,12 +22,20 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     [ObservableProperty]
     private ViewModelBase _currentPageViewModel;
 
-    public MainWindowViewModel(DownloadManager downloadManager, DownloadSettings settings, UiPreferencesRepository uiPreferences)
+    public MainWindowViewModel(DownloadManager downloadManager, DownloadSettings settings, UiPreferencesRepository uiPreferences, bool closeToTray)
     {
         _downloadListViewModel = new DownloadListViewModel(downloadManager, NavigateToSettings);
-        _settingsViewModel = new SettingsViewModel(settings, uiPreferences, NavigateToDownloads);
+        _settingsViewModel = new SettingsViewModel(settings, uiPreferences, NavigateToDownloads, closeToTray);
         _currentPageViewModel = _downloadListViewModel;
     }
+
+    /// <summary>Exposed so <see cref="Services.TrayIconService"/> can reach the live downloads
+    /// list (for the tray menu's per-download entries) without new plumbing.</summary>
+    public DownloadListViewModel DownloadListViewModel => _downloadListViewModel;
+
+    /// <summary>Exposed so <see cref="Services.TrayIconService"/> can read the current
+    /// close-to-tray setting at window-close time.</summary>
+    public SettingsViewModel SettingsViewModel => _settingsViewModel;
 
     [RelayCommand]
     private void NavigateToDownloads() => CurrentPageViewModel = _downloadListViewModel;

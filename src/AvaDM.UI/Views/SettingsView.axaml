@@ -147,6 +147,37 @@
                 </StackPanel>
             </Border>
 
+            <Border Background="{DynamicResource SurfaceBrush}"
+                    BorderBrush="{DynamicResource BorderBrush}"
+                    BorderThickness="1"
+                    CornerRadius="{StaticResource RadiusCard}"
+                    Padding="{StaticResource PanelPadding}">
+                <StackPanel Spacing="{StaticResource SpaceSm}">
+                    <TextBlock Text="Window Closing"
+                               FontSize="{StaticResource HeadingSmFontSize}"
+                               FontWeight="{StaticResource HeadingSmFontWeight}"
+                               Foreground="{DynamicResource TextPrimaryBrush}" />
+                    <StackPanel Orientation="Horizontal" Spacing="{StaticResource SpaceXs}">
+                        <Panel>
+                            <Button Classes="primary" Content="Minimize to Tray"
+                                    Command="{Binding SelectCloseToTrayCommand}"
+                                    IsVisible="{Binding IsCloseToTraySelected}" />
+                            <Button Classes="secondary" Content="Minimize to Tray"
+                                    Command="{Binding SelectCloseToTrayCommand}"
+                                    IsVisible="{Binding !IsCloseToTraySelected}" />
+                        </Panel>
+                        <Panel>
+                            <Button Classes="primary" Content="Close App"
+                                    Command="{Binding SelectCloseAppCommand}"
+                                    IsVisible="{Binding IsCloseAppSelected}" />
+                            <Button Classes="secondary" Content="Close App"
+                                    Command="{Binding SelectCloseAppCommand}"
+                                    IsVisible="{Binding !IsCloseAppSelected}" />
+                        </Panel>
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+
             <TextBlock Text="{Binding ErrorMessage}"
                        IsVisible="{Binding HasError}"
                        FontSize="{StaticResource BodyMdFontSize}"
