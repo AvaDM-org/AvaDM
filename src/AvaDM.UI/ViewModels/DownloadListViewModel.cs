@@ -99,6 +99,15 @@ public sealed partial class DownloadListViewModel : ViewModelBase, IDisposable
 
     public bool IsRemoveConfirmationOpen => ActiveRemoveConfirmation is not null;
 
+    /// <summary>Non-null while the Cancel confirmation overlay is open; a fresh instance is
+    /// created each time a row's Cancel command runs. <see cref="IsCancelConfirmationOpen"/>
+    /// drives the overlay's visibility in AXAML.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsCancelConfirmationOpen))]
+    private CancelConfirmationViewModel? _activeCancelConfirmation;
+
+    public bool IsCancelConfirmationOpen => ActiveCancelConfirmation is not null;
+
     /// <summary>Selected-state flags for the toolbar's filter tabs, one per
     /// <see cref="DownloadListStatusFilter"/> value. AXAML has no direct way to bind a style
     /// class to a view-model bool, so each tab is two overlaid buttons (selected/unselected
@@ -167,6 +176,17 @@ public sealed partial class DownloadListViewModel : ViewModelBase, IDisposable
 
     private void OnRemoveCancelled() => ActiveRemoveConfirmation = null;
 
+    private void RequestCancel(DownloadRowViewModel row) =>
+        ActiveCancelConfirmation = new CancelConfirmationViewModel(
+            _downloadManager,
+            row,
+            OnCancelConfirmed,
+            OnCancelDismissed);
+
+    private void OnCancelConfirmed() => ActiveCancelConfirmation = null;
+
+    private void OnCancelDismissed() => ActiveCancelConfirmation = null;
+
     partial void OnStatusFilterChanged(DownloadListStatusFilter value)
     {
         _ = value;
@@ -194,7 +214,7 @@ public sealed partial class DownloadListViewModel : ViewModelBase, IDisposable
             return existing;
         }
 
-        var row = new DownloadRowViewModel(_downloadManager, record, handle, RequestRemove, ShowToast);
+        var row = new DownloadRowViewModel(_downloadManager, record, handle, RequestRemove, RequestCancel, ShowToast);
         _allRows.Add(row);
         TrackRow(row);
         ApplyFilter();
@@ -254,6 +274,7 @@ public sealed partial class DownloadListViewModel : ViewModelBase, IDisposable
                         record,
                         _downloadManager.GetActiveHandle(record.Id),
                         RequestRemove,
+                        RequestCancel,
                         ShowToast);
                     _allRows.Add(newRow);
                     TrackRow(newRow);

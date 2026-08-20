@@ -118,6 +118,13 @@
             </Border>
         </Border>
 
+        <Border IsVisible="{Binding IsCancelConfirmationOpen}"
+                Background="#99000000">
+            <Border HorizontalAlignment="Center" VerticalAlignment="Center">
+                <views:CancelConfirmationView DataContext="{Binding ActiveCancelConfirmation}" />
+            </Border>
+        </Border>
+
         <ItemsControl ItemsSource="{Binding Toasts}"
                       HorizontalAlignment="Right"
                       VerticalAlignment="Bottom"

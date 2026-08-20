@@ -190,6 +190,46 @@ public sealed class DownloadManager
         return (true, null);
     }
 
+    /// <summary>Cancels a download that's still active in this process and deletes its
+    /// <c>.avadm</c> working file - i.e. the download's progress is not resumable afterwards.
+    /// Unlike <see cref="RemoveDownloadAsync"/>, the index row is left in place (recorded as
+    /// Cancelled) rather than deleted, so the row still shows up in the list.</summary>
+    public async Task<(bool Success, string? Error)> CancelDownloadAsync(Guid id, CancellationToken ct = default)
+    {
+        await EnsureInitializedAsync();
+
+        var record = await _repository.GetByIdAsync(id);
+        if (record is null)
+            return (false, "No download found with that id.");
+
+        var handle = GetActiveHandle(id);
+        if (handle is not null)
+        {
+            handle.Cancel();
+            try
+            {
+                await handle.Completion;
+            }
+            catch (OperationCanceledException)
+            {
+                // Expected: Cancel() faults Completion with this.
+            }
+        }
+
+        try
+        {
+            var workingPath = record.DestinationPath + ".avadm";
+            if (File.Exists(workingPath))
+                File.Delete(workingPath);
+        }
+        catch (Exception ex)
+        {
+            return (false, $"Download cancelled, but failed to delete progress file: {ex.Message}");
+        }
+
+        return (true, null);
+    }
+
     /// <summary>Convenience wrapper for resuming a download that isn't live in this process (e.g.
     /// after an app restart): looks up its record and re-adds it with
     /// <see cref="ConflictResolution.Resume"/>, which falls through to <see cref="Downloader"/>'s

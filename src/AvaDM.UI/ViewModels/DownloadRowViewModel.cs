@@ -40,6 +40,7 @@ public sealed partial class DownloadRowViewModel : ViewModelBase
 {
     private readonly DownloadManager _downloadManager;
     private readonly Action<DownloadRowViewModel> _onRemoveRequested;
+    private readonly Action<DownloadRowViewModel> _onCancelRequested;
     private readonly Action<string> _onLogMessage;
     private DownloadHandle? _handle;
 
@@ -130,10 +131,12 @@ public sealed partial class DownloadRowViewModel : ViewModelBase
         DownloadRecord record,
         DownloadHandle? handle,
         Action<DownloadRowViewModel> onRemoveRequested,
+        Action<DownloadRowViewModel> onCancelRequested,
         Action<string> onLogMessage)
     {
         _downloadManager = downloadManager;
         _onRemoveRequested = onRemoveRequested;
+        _onCancelRequested = onCancelRequested;
         _onLogMessage = onLogMessage;
         Id = record.Id;
         _fileName = Path.GetFileName(record.DestinationPath);
@@ -302,7 +305,7 @@ public sealed partial class DownloadRowViewModel : ViewModelBase
     }
 
     [RelayCommand(CanExecute = nameof(CanCancel))]
-    private void Cancel() => _handle?.Cancel();
+    private void Cancel() => _onCancelRequested(this);
 
     [RelayCommand]
     private void ToggleExpanded() => IsExpanded = !IsExpanded;

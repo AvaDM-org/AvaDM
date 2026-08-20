@@ -1,0 +1,54 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:vm="using:AvaDM.UI.ViewModels"
+             mc:Ignorable="d" d:DesignWidth="380" d:DesignHeight="260"
+             x:Class="AvaDM.UI.Views.CancelConfirmationView"
+             x:DataType="vm:CancelConfirmationViewModel">
+    <Border Background="{DynamicResource SurfaceBrush}"
+            BorderBrush="{DynamicResource BorderBrush}"
+            BorderThickness="1"
+            CornerRadius="{StaticResource RadiusCard}"
+            Padding="{StaticResource PanelPadding}"
+            Width="380"
+            IsEnabled="{Binding !IsBusy}">
+        <StackPanel Spacing="{StaticResource SpaceMd}">
+
+            <TextBlock Text="Cancel Download"
+                       FontSize="{StaticResource HeadingSmFontSize}"
+                       FontWeight="{StaticResource HeadingSmFontWeight}"
+                       Foreground="{DynamicResource TextPrimaryBrush}" />
+
+            <TextBlock Text="{Binding FileName}"
+                       FontSize="{StaticResource BodyMdFontSize}"
+                       Foreground="{DynamicResource TextPrimaryBrush}"
+                       TextTrimming="CharacterEllipsis" />
+
+            <Border Background="{DynamicResource SurfaceAltBrush}"
+                    BorderBrush="{DynamicResource DangerBrush}"
+                    BorderThickness="1"
+                    CornerRadius="{StaticResource RadiusControl}"
+                    Padding="{StaticResource RowPadding}">
+                <TextBlock Text="Cancelling will stop the download and delete the progress saved so far. You'll need to start it over from the beginning. This cannot be undone."
+                           TextWrapping="Wrap"
+                           FontSize="{StaticResource BodyMdFontSize}"
+                           Foreground="{DynamicResource DangerBrush}" />
+            </Border>
+
+            <TextBlock Text="{Binding ErrorMessage}"
+                       IsVisible="{Binding HasError}"
+                       FontSize="{StaticResource BodyMdFontSize}"
+                       Foreground="{DynamicResource DangerBrush}"
+                       TextWrapping="Wrap" />
+
+            <StackPanel Orientation="Horizontal"
+                        HorizontalAlignment="Right"
+                        Spacing="{StaticResource SpaceSm}">
+                <Button Classes="secondary" Content="Keep Downloading" Command="{Binding DismissCommand}" />
+                <Button Classes="primary" Content="Cancel Download" Command="{Binding ConfirmCommand}" />
+            </StackPanel>
+
+        </StackPanel>
+    </Border>
+</UserControl>
