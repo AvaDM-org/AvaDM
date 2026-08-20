@@ -1,5 +1,10 @@
 ---
-version: "1.0.0"
+version: "1.0.1"
+# 1.0.1: dark palette's primary/primary-hover/primary-pressed shifted one step darker
+# (values reused from the existing ramp, none invented) after the polish-pass contrast
+# spot-check found on-primary-on-primary at ~3.47:1 in dark mode, below the ~4.5:1 floor
+# this doc itself sets below. New dark on-primary/primary is ~5.37:1. Light palette was
+# already passing (~5.38:1) and is unchanged.
 name: "AvaDM Desktop UI"
 description: "Design system for the AvaDM Avalonia desktop client: a flat, dense, utility-app look for a cross-platform download manager. Two built-in palettes (dark default, light) plus a token contract so users can create or import their own palette without touching layout or component code."
 palette:
@@ -11,9 +16,9 @@ palette:
     text-primary: "#E6E9EF"
     text-secondary: "#9AA4B2"
     text-disabled: "#5B6472"
-    primary: "#3E8FB0"
-    primary-hover: "#56A6C7"
-    primary-pressed: "#2E6E89"
+    primary: "#2E6E89"
+    primary-hover: "#3E8FB0"
+    primary-pressed: "#234F62"
     on-primary: "#F5FAFC"
     success: "#4CAF7D"
     warning: "#D9A441"

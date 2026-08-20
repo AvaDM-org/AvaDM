@@ -1,0 +1,153 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:vm="using:AvaDM.UI.ViewModels"
+             xmlns:controls="using:AvaDM.UI.Controls"
+             mc:Ignorable="d" d:DesignWidth="900" d:DesignHeight="140"
+             x:Class="AvaDM.UI.Views.DownloadRowView"
+             x:DataType="vm:DownloadRowViewModel">
+
+    <!-- One download row (docs/design.md components.download-row): surface background, 1px
+         border, card radius. The collapsed header (file name, destination, aggregate progress,
+         status chip, speed+ETA, expand toggle, pause/resume/cancel) never changes height as its
+         status/speed text updates - only the chunk panel below expands/collapses, an explicit
+         user toggle rather than content-driven reflow, per design.md's row-height-stability
+         guardrail. -->
+    <Border Background="{DynamicResource SurfaceBrush}"
+            BorderBrush="{DynamicResource BorderBrush}"
+            BorderThickness="1"
+            CornerRadius="{StaticResource RadiusCard}">
+        <StackPanel>
+
+            <!-- Collapsed header -->
+            <Grid Margin="{StaticResource RowPadding}"
+                  ColumnDefinitions="Auto,*,Auto,Auto"
+                  ColumnSpacing="{StaticResource SpaceMd}">
+
+                <Button Grid.Column="0" Classes="icon"
+                        Command="{Binding ToggleExpandedCommand}"
+                        ToolTip.Tip="Show/hide chunks"
+                        VerticalAlignment="Center">
+                    <Panel>
+                        <TextBlock Text="&#9656;" IsVisible="{Binding !IsExpanded}" />
+                        <TextBlock Text="&#9662;" IsVisible="{Binding IsExpanded}" />
+                    </Panel>
+                </Button>
+
+                <StackPanel Grid.Column="1" Spacing="{StaticResource SpaceXs}" VerticalAlignment="Center">
+                    <TextBlock Text="{Binding FileName}"
+                               FontSize="{StaticResource HeadingSmFontSize}"
+                               FontWeight="{StaticResource HeadingSmFontWeight}"
+                               Foreground="{DynamicResource TextPrimaryBrush}"
+                               TextTrimming="CharacterEllipsis" />
+                    <TextBlock Text="{Binding DestinationPath}"
+                               FontSize="{StaticResource LabelSmFontSize}"
+                               Foreground="{DynamicResource TextSecondaryBrush}"
+                               TextTrimming="CharacterEllipsis" />
+                    <ProgressBar Value="{Binding ProgressPercent}" Minimum="0" Maximum="100" />
+                    <Grid ColumnDefinitions="*,Auto">
+                        <TextBlock Grid.Column="0" Text="{Binding BytesText}"
+                                   FontFamily="{StaticResource MonoFontFamily}"
+                                   FontSize="{StaticResource NumericMdFontSize}"
+                                   FontWeight="{StaticResource NumericMdFontWeight}"
+                                   Foreground="{DynamicResource TextSecondaryBrush}" />
+                        <TextBlock Grid.Column="1" Text="{Binding ProgressPercent, StringFormat={}{0:N0}%}"
+                                   FontFamily="{StaticResource MonoFontFamily}"
+                                   FontSize="{StaticResource NumericMdFontSize}"
+                                   FontWeight="{StaticResource NumericMdFontWeight}"
+                                   Foreground="{DynamicResource TextSecondaryBrush}" />
+                    </Grid>
+                    <TextBlock Text="{Binding LastError}"
+                               IsVisible="{Binding HasLastError}"
+                               FontSize="{StaticResource LabelSmFontSize}"
+                               Foreground="{DynamicResource DangerBrush}"
+                               TextTrimming="CharacterEllipsis" />
+                </StackPanel>
+
+                <StackPanel Grid.Column="2" Spacing="{StaticResource SpaceXs}"
+                            HorizontalAlignment="Right" VerticalAlignment="Center">
+                    <controls:StatusChip StatusClass="{Binding StatusChipClass}"
+                                          StatusText="{Binding StatusText}"
+                                          HorizontalAlignment="Right" />
+                    <TextBlock Text="{Binding SpeedText}"
+                               FontFamily="{StaticResource MonoFontFamily}"
+                               FontSize="{StaticResource NumericMdFontSize}"
+                               FontWeight="{StaticResource NumericMdFontWeight}"
+                               Foreground="{DynamicResource TextSecondaryBrush}"
+                               HorizontalAlignment="Right" />
+                    <TextBlock Text="{Binding EtaText}"
+                               FontFamily="{StaticResource MonoFontFamily}"
+                               FontSize="{StaticResource NumericMdFontSize}"
+                               FontWeight="{StaticResource NumericMdFontWeight}"
+                               Foreground="{DynamicResource TextSecondaryBrush}"
+                               HorizontalAlignment="Right" />
+                </StackPanel>
+
+                <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="{StaticResource SpaceXs}"
+                            VerticalAlignment="Center">
+                    <Button Classes="icon" Content="&#10074;&#10074;"
+                            Command="{Binding PauseCommand}" IsVisible="{Binding CanPause}"
+                            ToolTip.Tip="Pause" />
+                    <Button Classes="icon" Content="&#9654;"
+                            Command="{Binding ResumeCommand}" IsVisible="{Binding CanResume}"
+                            ToolTip.Tip="Resume" />
+                    <Button Classes="icon" Content="&#10005;"
+                            Command="{Binding CancelCommand}" IsVisible="{Binding CanCancel}"
+                            ToolTip.Tip="Cancel" />
+                    <Button Classes="icon" Content="&#128465;"
+                            Command="{Binding RemoveCommand}"
+                            ToolTip.Tip="Remove" />
+                </StackPanel>
+            </Grid>
+
+            <!-- Expandable chunk panel: per-chunk detail (docs/design.md chunk-row) plus the
+                 inline speed-limit field. Surface-alt background, control radius. -->
+            <Border IsVisible="{Binding IsExpanded}"
+                    Background="{DynamicResource SurfaceAltBrush}"
+                    CornerRadius="{StaticResource RadiusControl}"
+                    Margin="{StaticResource RowPadding}">
+                <StackPanel Spacing="{StaticResource SpaceSm}" Margin="{StaticResource PanelPadding}">
+
+                    <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="{StaticResource SpaceSm}">
+                        <TextBlock Grid.Column="0" Text="Speed limit"
+                                   FontSize="{StaticResource BodyMdFontSize}"
+                                   Foreground="{DynamicResource TextSecondaryBrush}"
+                                   VerticalAlignment="Center" />
+                        <TextBox Grid.Column="1" Text="{Binding SpeedLimitInput}"
+                                 PlaceholderText="bytes/sec, or &quot;off&quot;" />
+                        <Button Grid.Column="2" Classes="secondary" Content="Apply"
+                                Command="{Binding ApplySpeedLimitCommand}" />
+                    </Grid>
+
+                    <ItemsControl ItemsSource="{Binding Chunks}">
+                        <ItemsControl.ItemsPanel>
+                            <ItemsPanelTemplate>
+                                <StackPanel Spacing="{StaticResource SpaceXs}" />
+                            </ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate x:DataType="vm:ChunkRowViewModel">
+                                <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="{StaticResource SpaceSm}">
+                                    <TextBlock Grid.Column="0" Text="{Binding ByteRangeText}"
+                                               FontFamily="{StaticResource MonoFontFamily}"
+                                               FontSize="{StaticResource NumericMdFontSize}"
+                                               FontWeight="{StaticResource NumericMdFontWeight}"
+                                               Foreground="{DynamicResource TextSecondaryBrush}"
+                                               VerticalAlignment="Center" />
+                                    <ProgressBar Grid.Column="1" Classes="chunk"
+                                                 Value="{Binding ProgressPercent}" Minimum="0" Maximum="100"
+                                                 VerticalAlignment="Center" />
+                                    <controls:StatusChip Grid.Column="2"
+                                                          StatusClass="{Binding StatusChipClass}"
+                                                          StatusText="{Binding StatusText}"
+                                                          VerticalAlignment="Center" />
+                                </Grid>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </StackPanel>
+            </Border>
+        </StackPanel>
+    </Border>
+</UserControl>

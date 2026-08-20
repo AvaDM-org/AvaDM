@@ -1,0 +1,27 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:vm="using:AvaDM.UI.ViewModels"
+        xmlns:views="using:AvaDM.UI.Views"
+        mc:Ignorable="d" d:DesignWidth="1000" d:DesignHeight="650"
+        x:Class="AvaDM.UI.MainWindow"
+        x:DataType="vm:MainWindowViewModel"
+        Title="AvaDM"
+        Width="1000" Height="650"
+        Background="{DynamicResource BackgroundBrush}">
+
+    <!-- Single window, no persistent app-chrome nav bar (per design.md's Layout section) - just
+         swaps the page view model through DataTemplates. Each page's own toolbar carries its
+         navigation entry point (Downloads -> Settings gear, Settings -> its own way back). -->
+    <Window.DataTemplates>
+        <DataTemplate DataType="vm:DownloadListViewModel">
+            <views:DownloadListView />
+        </DataTemplate>
+        <DataTemplate DataType="vm:SettingsViewModel">
+            <views:SettingsView />
+        </DataTemplate>
+    </Window.DataTemplates>
+
+    <ContentControl Content="{Binding CurrentPageViewModel}" />
+</Window>

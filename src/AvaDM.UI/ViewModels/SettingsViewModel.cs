@@ -1,0 +1,154 @@
+using Avalonia;
+using Avalonia.Styling;
+using AvaDM.Core;
+using AvaDM.UI.Services;
+using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.Input;
+
+namespace AvaDM.UI.ViewModels;
+
+/// <summary>
+/// Settings page with staged edits over the shared <see cref="DownloadSettings"/> instance and
+/// an Appearance theme toggle that is persisted immediately through
+/// <see cref="UiPreferencesRepository"/>.
+/// </summary>
+public sealed partial class SettingsViewModel : ViewModelBase
+{
+    private readonly DownloadSettings _settings;
+    private readonly UiPreferencesRepository _uiPreferences;
+    private readonly Action _navigateToDownloads;
+
+    [ObservableProperty]
+    private string _downloadDirectory;
+
+    [ObservableProperty]
+    private int _chunkCount;
+
+    [ObservableProperty]
+    private string? _speedLimitInput;
+
+    [ObservableProperty]
+    private string? _repositoryPathInput;
+
+    [ObservableProperty]
+    private int _maxRetryAttempts;
+
+    [ObservableProperty]
+    private string _retryBaseDelaySecondsInput;
+
+    [ObservableProperty]
+    private string _perAttemptTimeoutSecondsInput;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasError))]
+    private string? _errorMessage;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasStatusMessage))]
+    private string? _statusMessage;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsDarkSelected))]
+    [NotifyPropertyChangedFor(nameof(IsLightSelected))]
+    private bool _isDarkTheme;
+
+    public SettingsViewModel(
+        DownloadSettings settings,
+        UiPreferencesRepository uiPreferences,
+        Action navigateToDownloads)
+    {
+        _settings = settings;
+        _uiPreferences = uiPreferences;
+        _navigateToDownloads = navigateToDownloads;
+
+        _downloadDirectory = settings.DefaultDownloadDirectory;
+        _chunkCount = settings.DefaultChunkCount;
+        _speedLimitInput = settings.DefaultSpeedLimitBytesPerSecond?.ToString() ?? string.Empty;
+        _repositoryPathInput = settings.RepositoryPath ?? string.Empty;
+        _maxRetryAttempts = settings.DefaultMaxRetryAttempts;
+        _retryBaseDelaySecondsInput = settings.DefaultRetryBaseDelay.TotalSeconds.ToString("0.##");
+        _perAttemptTimeoutSecondsInput = settings.DefaultPerAttemptTimeout.TotalSeconds.ToString("0.##");
+        _isDarkTheme = Application.Current!.RequestedThemeVariant == ThemeVariant.Dark;
+    }
+
+    public string ResolvedRepositoryPathHint => _settings.GetResolvedRepositoryPath();
+
+    public bool HasError => !string.IsNullOrEmpty(ErrorMessage);
+
+    public bool HasStatusMessage => !string.IsNullOrEmpty(StatusMessage);
+
+    public bool IsDarkSelected => IsDarkTheme;
+
+    public bool IsLightSelected => !IsDarkTheme;
+
+    [RelayCommand]
+    private void CloseSettings() => _navigateToDownloads();
+
+    [RelayCommand]
+    private async Task SelectDarkTheme()
+    {
+        IsDarkTheme = true;
+        await _uiPreferences.SetValueAsync(UiPreferencesRepository.ThemeVariantKey, "Dark");
+        Application.Current!.RequestedThemeVariant = ThemeVariant.Dark;
+    }
+
+    [RelayCommand]
+    private async Task SelectLightTheme()
+    {
+        IsDarkTheme = false;
+        await _uiPreferences.SetValueAsync(UiPreferencesRepository.ThemeVariantKey, "Light");
+        Application.Current!.RequestedThemeVariant = ThemeVariant.Light;
+    }
+
+    [RelayCommand]
+    private void Save()
+    {
+        ErrorMessage = null;
+        StatusMessage = null;
+
+        if (string.IsNullOrWhiteSpace(DownloadDirectory))
+        {
+            ErrorMessage = "Download directory is required.";
+            return;
+        }
+
+        var speedLimitText = SpeedLimitInput?.Trim();
+        long? speedLimit = null;
+        if (!string.IsNullOrEmpty(speedLimitText)
+            && !speedLimitText.Equals("off", StringComparison.OrdinalIgnoreCase))
+        {
+            if (!long.TryParse(speedLimitText, out var parsedSpeedLimit) || parsedSpeedLimit <= 0)
+            {
+                ErrorMessage = "Speed limit must be a positive number of bytes/sec, or blank/\"off\" for no limit.";
+                return;
+            }
+
+            speedLimit = parsedSpeedLimit;
+        }
+
+        if (!double.TryParse(RetryBaseDelaySecondsInput, out var retryBaseDelaySeconds)
+            || retryBaseDelaySeconds <= 0)
+        {
+            ErrorMessage = "Retry base delay must be a positive number of seconds.";
+            return;
+        }
+
+        if (!double.TryParse(PerAttemptTimeoutSecondsInput, out var perAttemptTimeoutSeconds)
+            || perAttemptTimeoutSeconds <= 0)
+        {
+            ErrorMessage = "Per-attempt timeout must be a positive number of seconds.";
+            return;
+        }
+
+        _settings.DefaultDownloadDirectory = DownloadDirectory.Trim();
+        _settings.DefaultChunkCount = ChunkCount;
+        _settings.DefaultSpeedLimitBytesPerSecond = speedLimit;
+        _settings.RepositoryPath = string.IsNullOrWhiteSpace(RepositoryPathInput)
+            ? null
+            : RepositoryPathInput.Trim();
+        _settings.DefaultMaxRetryAttempts = MaxRetryAttempts;
+        _settings.DefaultRetryBaseDelay = TimeSpan.FromSeconds(retryBaseDelaySeconds);
+        _settings.DefaultPerAttemptTimeout = TimeSpan.FromSeconds(perAttemptTimeoutSeconds);
+        StatusMessage = "Settings saved.";
+    }
+}

@@ -124,6 +124,71 @@ public sealed class DownloadManager
     /// it isn't (finished, or started in a previous process and never resumed here).</summary>
     public DownloadHandle? GetActiveHandle(Guid id) => _activeHandles.GetValueOrDefault(id);
 
+    /// <summary>Removes a download from the index, cancelling it first if it's still active in
+    /// this process. Optionally also deletes the file(s) left on disk - the final destination if
+    /// the download completed, and/or the <c>.avadm</c> working file if it didn't (whichever is
+    /// present). File-delete failures are reported back rather than swallowed, since silently
+    /// leaving a file behind (or failing to remove one the user asked to remove) is something the
+    /// caller needs to be able to surface.</summary>
+    public async Task<(bool Success, string? Error)> RemoveDownloadAsync(Guid id, bool deleteFile, CancellationToken ct = default)
+    {
+        await EnsureInitializedAsync();
+
+        var record = await _repository.GetByIdAsync(id);
+        if (record is null)
+            return (false, "No download found with that id.");
+
+        var handle = GetActiveHandle(id);
+        if (handle is not null)
+        {
+            handle.Cancel();
+            try
+            {
+                await handle.Completion;
+            }
+            catch (OperationCanceledException)
+            {
+                // Expected: Cancel() faults Completion with this.
+            }
+        }
+
+        await _repository.DeleteAsync(id);
+
+        if (deleteFile)
+        {
+            try
+            {
+                if (File.Exists(record.DestinationPath))
+                    File.Delete(record.DestinationPath);
+
+                var workingPath = record.DestinationPath + ".avadm";
+                if (File.Exists(workingPath))
+                    File.Delete(workingPath);
+            }
+            catch (Exception ex)
+            {
+                return (false, $"Removed from index, but failed to delete file(s): {ex.Message}");
+            }
+        }
+
+        return (true, null);
+    }
+
+    /// <summary>Convenience wrapper for resuming a download that isn't live in this process (e.g.
+    /// after an app restart): looks up its record and re-adds it with
+    /// <see cref="ConflictResolution.Resume"/>, which falls through to <see cref="Downloader"/>'s
+    /// existing <c>.avadm</c>-footer resume logic - no separate "rehydration" code path needed.</summary>
+    public async Task<AddDownloadResult> ResumeDownloadAsync(Guid id)
+    {
+        await EnsureInitializedAsync();
+
+        var record = await _repository.GetByIdAsync(id);
+        if (record is null)
+            return new AddDownloadResult(false, null, null, null, "No download found with that id.");
+
+        return await AddDownloadAsync(new Uri(record.Uri), record.DestinationPath, null, new ConflictResolution.Resume());
+    }
+
     private string ResolvePath(Uri uri, string? destinationPath) =>
         Path.GetFullPath(_downloader.ResolveDestinationPath(uri, destinationPath));
 

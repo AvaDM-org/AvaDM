@@ -1,0 +1,46 @@
+<ResourceDictionary xmlns="https://github.com/avaloniaui"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+  <!-- Palette tokens from docs/design.md palette.light. Mirrors Dark.axaml key-for-key so
+       either dictionary can be selected as the active ThemeDictionaries entry. -->
+
+  <Color x:Key="BackgroundColor">#F5F6F8</Color>
+  <Color x:Key="SurfaceColor">#FFFFFF</Color>
+  <Color x:Key="SurfaceAltColor">#ECEFF3</Color>
+  <Color x:Key="BorderColor">#D8DEE6</Color>
+  <Color x:Key="TextPrimaryColor">#1A1F26</Color>
+  <Color x:Key="TextSecondaryColor">#5B6472</Color>
+  <Color x:Key="TextDisabledColor">#9AA4B2</Color>
+  <Color x:Key="PrimaryColor">#2E6E89</Color>
+  <Color x:Key="PrimaryHoverColor">#3E8FB0</Color>
+  <Color x:Key="PrimaryPressedColor">#234F62</Color>
+  <Color x:Key="OnPrimaryColor">#F5FAFC</Color>
+  <Color x:Key="SuccessColor">#2F8F5B</Color>
+  <Color x:Key="WarningColor">#B5791F</Color>
+  <Color x:Key="DangerColor">#C1443F</Color>
+  <Color x:Key="InfoColor">#2E6E89</Color>
+
+  <SolidColorBrush x:Key="BackgroundBrush" Color="{StaticResource BackgroundColor}" />
+  <SolidColorBrush x:Key="SurfaceBrush" Color="{StaticResource SurfaceColor}" />
+  <SolidColorBrush x:Key="SurfaceAltBrush" Color="{StaticResource SurfaceAltColor}" />
+  <SolidColorBrush x:Key="BorderBrush" Color="{StaticResource BorderColor}" />
+  <SolidColorBrush x:Key="TextPrimaryBrush" Color="{StaticResource TextPrimaryColor}" />
+  <SolidColorBrush x:Key="TextSecondaryBrush" Color="{StaticResource TextSecondaryColor}" />
+  <SolidColorBrush x:Key="TextDisabledBrush" Color="{StaticResource TextDisabledColor}" />
+  <SolidColorBrush x:Key="PrimaryBrush" Color="{StaticResource PrimaryColor}" />
+  <SolidColorBrush x:Key="PrimaryHoverBrush" Color="{StaticResource PrimaryHoverColor}" />
+  <SolidColorBrush x:Key="PrimaryPressedBrush" Color="{StaticResource PrimaryPressedColor}" />
+  <SolidColorBrush x:Key="OnPrimaryBrush" Color="{StaticResource OnPrimaryColor}" />
+  <SolidColorBrush x:Key="SuccessBrush" Color="{StaticResource SuccessColor}" />
+  <SolidColorBrush x:Key="WarningBrush" Color="{StaticResource WarningColor}" />
+  <SolidColorBrush x:Key="DangerBrush" Color="{StaticResource DangerColor}" />
+  <SolidColorBrush x:Key="InfoBrush" Color="{StaticResource InfoColor}" />
+
+  <SolidColorBrush x:Key="SuccessChipBackgroundBrush" Color="{StaticResource SuccessColor}" Opacity="0.15" />
+  <SolidColorBrush x:Key="WarningChipBackgroundBrush" Color="{StaticResource WarningColor}" Opacity="0.15" />
+  <SolidColorBrush x:Key="DangerChipBackgroundBrush" Color="{StaticResource DangerColor}" Opacity="0.15" />
+  <SolidColorBrush x:Key="InfoChipBackgroundBrush" Color="{StaticResource InfoColor}" Opacity="0.15" />
+  <SolidColorBrush x:Key="NeutralChipBackgroundBrush" Color="{StaticResource SurfaceAltColor}" />
+  <SolidColorBrush x:Key="NeutralChipTextBrush" Color="{StaticResource TextSecondaryColor}" />
+
+</ResourceDictionary>

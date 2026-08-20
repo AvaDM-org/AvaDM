@@ -1,0 +1,149 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:vm="using:AvaDM.UI.ViewModels"
+             xmlns:views="using:AvaDM.UI.Views"
+             mc:Ignorable="d" d:DesignWidth="900" d:DesignHeight="600"
+             x:Class="AvaDM.UI.Views.DownloadListView"
+             x:DataType="vm:DownloadListViewModel">
+
+    <!-- Toolbar and row-list layout follow docs/design.md; filter tabs overlay their selected
+         and unselected button variants, matching DownloadRowView's expand/collapse toggle. -->
+    <Panel>
+        <Grid RowDefinitions="Auto,*">
+            <Border Grid.Row="0"
+                    Background="{DynamicResource SurfaceAltBrush}"
+                    BorderBrush="{DynamicResource BorderBrush}"
+                    BorderThickness="0,0,0,1"
+                    Padding="{StaticResource ToolbarPadding}">
+                <Grid ColumnDefinitions="Auto,*,Auto,Auto"
+                      ColumnSpacing="{StaticResource SpaceMd}">
+                    <Button Grid.Column="0"
+                            Classes="primary"
+                            Content="Add Download"
+                            Command="{Binding AddDownloadCommand}" />
+
+                    <TextBox Grid.Column="1"
+                             Text="{Binding SearchText, Mode=TwoWay}"
+                             PlaceholderText="Search downloads..." />
+
+                    <StackPanel Grid.Column="2"
+                                Orientation="Horizontal"
+                                Spacing="{StaticResource SpaceXs}">
+                        <Panel>
+                            <Button Classes="primary"
+                                    Content="All"
+                                    Command="{Binding SetStatusFilterCommand}"
+                                    CommandParameter="{x:Static vm:DownloadListStatusFilter.All}"
+                                    IsVisible="{Binding IsFilterAll}" />
+                            <Button Classes="secondary"
+                                    Content="All"
+                                    Command="{Binding SetStatusFilterCommand}"
+                                    CommandParameter="{x:Static vm:DownloadListStatusFilter.All}"
+                                    IsVisible="{Binding !IsFilterAll}" />
+                        </Panel>
+                        <Panel>
+                            <Button Classes="primary"
+                                    Content="Active"
+                                    Command="{Binding SetStatusFilterCommand}"
+                                    CommandParameter="{x:Static vm:DownloadListStatusFilter.Active}"
+                                    IsVisible="{Binding IsFilterActive}" />
+                            <Button Classes="secondary"
+                                    Content="Active"
+                                    Command="{Binding SetStatusFilterCommand}"
+                                    CommandParameter="{x:Static vm:DownloadListStatusFilter.Active}"
+                                    IsVisible="{Binding !IsFilterActive}" />
+                        </Panel>
+                        <Panel>
+                            <Button Classes="primary"
+                                    Content="Completed"
+                                    Command="{Binding SetStatusFilterCommand}"
+                                    CommandParameter="{x:Static vm:DownloadListStatusFilter.Completed}"
+                                    IsVisible="{Binding IsFilterCompleted}" />
+                            <Button Classes="secondary"
+                                    Content="Completed"
+                                    Command="{Binding SetStatusFilterCommand}"
+                                    CommandParameter="{x:Static vm:DownloadListStatusFilter.Completed}"
+                                    IsVisible="{Binding !IsFilterCompleted}" />
+                        </Panel>
+                        <Panel>
+                            <Button Classes="primary"
+                                    Content="Failed"
+                                    Command="{Binding SetStatusFilterCommand}"
+                                    CommandParameter="{x:Static vm:DownloadListStatusFilter.Failed}"
+                                    IsVisible="{Binding IsFilterFailed}" />
+                            <Button Classes="secondary"
+                                    Content="Failed"
+                                    Command="{Binding SetStatusFilterCommand}"
+                                    CommandParameter="{x:Static vm:DownloadListStatusFilter.Failed}"
+                                    IsVisible="{Binding !IsFilterFailed}" />
+                        </Panel>
+                    </StackPanel>
+
+                    <Button Grid.Column="3"
+                            Classes="secondary"
+                            Content="Settings"
+                            Command="{Binding OpenSettingsCommand}" />
+                </Grid>
+            </Border>
+
+            <ScrollViewer Grid.Row="1" Margin="{StaticResource PanelPadding}">
+                <ItemsControl ItemsSource="{Binding FilteredDownloads}">
+                    <ItemsControl.ItemsPanel>
+                        <ItemsPanelTemplate>
+                            <StackPanel Spacing="{StaticResource SpaceSm}" />
+                        </ItemsPanelTemplate>
+                    </ItemsControl.ItemsPanel>
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="vm:DownloadRowViewModel">
+                            <views:DownloadRowView />
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </ScrollViewer>
+        </Grid>
+
+        <Border IsVisible="{Binding IsAddDownloadOpen}"
+                Background="#99000000">
+            <Border HorizontalAlignment="Center" VerticalAlignment="Center">
+                <views:AddDownloadView DataContext="{Binding ActiveAddDownload}" />
+            </Border>
+        </Border>
+
+        <Border IsVisible="{Binding IsRemoveConfirmationOpen}"
+                Background="#99000000">
+            <Border HorizontalAlignment="Center" VerticalAlignment="Center">
+                <views:RemoveConfirmationView DataContext="{Binding ActiveRemoveConfirmation}" />
+            </Border>
+        </Border>
+
+        <ItemsControl ItemsSource="{Binding Toasts}"
+                      HorizontalAlignment="Right"
+                      VerticalAlignment="Bottom"
+                      Margin="{StaticResource PanelPadding}">
+            <ItemsControl.ItemsPanel>
+                <ItemsPanelTemplate>
+                    <StackPanel Spacing="{StaticResource SpaceSm}" />
+                </ItemsPanelTemplate>
+            </ItemsControl.ItemsPanel>
+            <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="vm:ToastViewModel">
+                    <Border Classes="toast">
+                        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="{StaticResource SpaceSm}">
+                            <TextBlock Grid.Column="0" Text="{Binding Message}"
+                                       Foreground="{DynamicResource TextPrimaryBrush}"
+                                       FontSize="{StaticResource BodyMdFontSize}"
+                                       TextWrapping="Wrap"
+                                       MaxWidth="320"
+                                       VerticalAlignment="Center" />
+                            <Button Grid.Column="1" Classes="icon" Content="&#10005;"
+                                    Command="{Binding DismissCommand}"
+                                    ToolTip.Tip="Dismiss" />
+                        </Grid>
+                    </Border>
+                </DataTemplate>
+            </ItemsControl.ItemTemplate>
+        </ItemsControl>
+    </Panel>
+</UserControl>

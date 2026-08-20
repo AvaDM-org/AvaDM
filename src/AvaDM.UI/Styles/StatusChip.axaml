@@ -1,0 +1,62 @@
+<Styles xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+  <!-- Status-chip visuals from docs/design.md components.status-chip: pill radius, background
+       is the semantic color at ~15% opacity over the current background (realized via the
+       *ChipBackgroundBrush alpha tokens in Themes/Dark.axaml + Light.axaml), text is the
+       full-opacity semantic color. This is the style-class layer only; the reusable
+       Controls/StatusChip.axaml markup (a Border + TextBlock pairing these classes) lands
+       with the downloads-list page work.
+
+       Semantic mapping (docs/design.md Colors section):
+         completed -> success   downloading -> info (= primary)
+         paused    -> warning   failed      -> danger
+         queued / cancelled / interrupted -> neutral (no semantic hue) -->
+
+  <Style Selector="Border.chip">
+    <Setter Property="CornerRadius" Value="{StaticResource RadiusPill}" />
+    <Setter Property="Padding" Value="8,2" />
+  </Style>
+
+  <Style Selector="Border.chip TextBlock">
+    <Setter Property="FontSize" Value="{StaticResource LabelSmFontSize}" />
+    <Setter Property="FontWeight" Value="{StaticResource LabelSmFontWeight}" />
+    <Setter Property="LetterSpacing" Value="{StaticResource LabelSmLetterSpacing}" />
+  </Style>
+
+  <Style Selector="Border.chip.success">
+    <Setter Property="Background" Value="{DynamicResource SuccessChipBackgroundBrush}" />
+  </Style>
+  <Style Selector="Border.chip.success TextBlock">
+    <Setter Property="Foreground" Value="{DynamicResource SuccessBrush}" />
+  </Style>
+
+  <Style Selector="Border.chip.info">
+    <Setter Property="Background" Value="{DynamicResource InfoChipBackgroundBrush}" />
+  </Style>
+  <Style Selector="Border.chip.info TextBlock">
+    <Setter Property="Foreground" Value="{DynamicResource InfoBrush}" />
+  </Style>
+
+  <Style Selector="Border.chip.warning">
+    <Setter Property="Background" Value="{DynamicResource WarningChipBackgroundBrush}" />
+  </Style>
+  <Style Selector="Border.chip.warning TextBlock">
+    <Setter Property="Foreground" Value="{DynamicResource WarningBrush}" />
+  </Style>
+
+  <Style Selector="Border.chip.danger">
+    <Setter Property="Background" Value="{DynamicResource DangerChipBackgroundBrush}" />
+  </Style>
+  <Style Selector="Border.chip.danger TextBlock">
+    <Setter Property="Foreground" Value="{DynamicResource DangerBrush}" />
+  </Style>
+
+  <Style Selector="Border.chip.neutral">
+    <Setter Property="Background" Value="{DynamicResource NeutralChipBackgroundBrush}" />
+  </Style>
+  <Style Selector="Border.chip.neutral TextBlock">
+    <Setter Property="Foreground" Value="{DynamicResource NeutralChipTextBrush}" />
+  </Style>
+
+</Styles>

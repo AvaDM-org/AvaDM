@@ -1,0 +1,29 @@
+<Styles xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+  <!-- Progress-bar visuals from docs/design.md components.progress-bar: track = surface-alt,
+       fill = flat primary (no gradient, no shimmer), radius = control. Confirmed via
+       mcp__avalonia-docs__search_avalonia_docs that the default template exposes Background
+       (track) and Foreground (PART_Indicator fill) as plain setter targets - no ControlTemplate
+       retemplate needed. IsIndeterminate shimmer is a separate template state this app never
+       uses (all progress here is determinate: aggregate row + per-chunk). -->
+
+  <Style Selector="ProgressBar">
+    <Setter Property="Background" Value="{DynamicResource SurfaceAltBrush}" />
+    <Setter Property="Foreground" Value="{DynamicResource PrimaryBrush}" />
+    <Setter Property="CornerRadius" Value="{StaticResource RadiusControl}" />
+    <Setter Property="Height" Value="6" />
+  </Style>
+
+  <!-- Flat fill, no rounded-vs-square mismatch between track and indicator. -->
+  <Style Selector="ProgressBar /template/ Border#PART_Indicator">
+    <Setter Property="CornerRadius" Value="{StaticResource RadiusControl}" />
+  </Style>
+
+  <!-- Thin per-chunk variant (docs/design.md chunk-row: "thin flat progress bar"). Apply with
+       Classes="chunk" on the chunk rows' ProgressBar. -->
+  <Style Selector="ProgressBar.chunk">
+    <Setter Property="Height" Value="3" />
+  </Style>
+
+</Styles>

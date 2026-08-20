@@ -1,0 +1,171 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:vm="using:AvaDM.UI.ViewModels"
+             mc:Ignorable="d" d:DesignWidth="900" d:DesignHeight="600"
+             x:Class="AvaDM.UI.Views.SettingsView"
+             x:DataType="vm:SettingsViewModel">
+    <ScrollViewer>
+        <StackPanel Margin="{StaticResource PanelPadding}" Spacing="{StaticResource SpaceMd}">
+            <TextBlock Text="Settings"
+                       FontSize="{StaticResource HeadingLgFontSize}"
+                       FontWeight="{StaticResource HeadingLgFontWeight}"
+                       Foreground="{DynamicResource TextPrimaryBrush}" />
+
+            <Border Background="{DynamicResource SurfaceBrush}"
+                    BorderBrush="{DynamicResource BorderBrush}"
+                    BorderThickness="1"
+                    CornerRadius="{StaticResource RadiusCard}"
+                    Padding="{StaticResource PanelPadding}">
+                <StackPanel Spacing="{StaticResource SpaceSm}">
+                    <TextBlock Text="Downloads &amp; Concurrency"
+                               FontSize="{StaticResource HeadingSmFontSize}"
+                               FontWeight="{StaticResource HeadingSmFontWeight}"
+                               Foreground="{DynamicResource TextPrimaryBrush}" />
+
+                    <StackPanel Spacing="{StaticResource SpaceXs}">
+                        <TextBlock Text="Download directory"
+                                   FontSize="{StaticResource BodyMdFontSize}"
+                                   Foreground="{DynamicResource TextSecondaryBrush}" />
+                        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="{StaticResource SpaceSm}">
+                            <TextBox Grid.Column="0" Text="{Binding DownloadDirectory, Mode=TwoWay}" />
+                            <Button Grid.Column="1" Classes="secondary" Content="Browse..."
+                                    Click="OnBrowseDirectoryClick" />
+                        </Grid>
+                    </StackPanel>
+
+                    <Grid ColumnDefinitions="Auto,*" ColumnSpacing="{StaticResource SpaceSm}">
+                        <TextBlock Grid.Column="0" Text="Chunk count"
+                                   FontSize="{StaticResource BodyMdFontSize}"
+                                   Foreground="{DynamicResource TextSecondaryBrush}"
+                                   VerticalAlignment="Center" />
+                        <NumericUpDown Grid.Column="1" Value="{Binding ChunkCount, Mode=TwoWay}"
+                                       Minimum="1" Maximum="64" Increment="1" />
+                    </Grid>
+
+                    <Grid ColumnDefinitions="Auto,*" ColumnSpacing="{StaticResource SpaceSm}">
+                        <TextBlock Grid.Column="0" Text="Max retry attempts"
+                                   FontSize="{StaticResource BodyMdFontSize}"
+                                   Foreground="{DynamicResource TextSecondaryBrush}"
+                                   VerticalAlignment="Center" />
+                        <NumericUpDown Grid.Column="1" Value="{Binding MaxRetryAttempts, Mode=TwoWay}"
+                                       Minimum="0" Maximum="20" Increment="1" />
+                    </Grid>
+
+                    <Grid ColumnDefinitions="Auto,*" ColumnSpacing="{StaticResource SpaceSm}">
+                        <TextBlock Grid.Column="0" Text="Retry base delay (seconds)"
+                                   FontSize="{StaticResource BodyMdFontSize}"
+                                   Foreground="{DynamicResource TextSecondaryBrush}"
+                                   VerticalAlignment="Center" />
+                        <TextBox Grid.Column="1"
+                                 Text="{Binding RetryBaseDelaySecondsInput, Mode=TwoWay}" />
+                    </Grid>
+
+                    <Grid ColumnDefinitions="Auto,*" ColumnSpacing="{StaticResource SpaceSm}">
+                        <TextBlock Grid.Column="0" Text="Per-attempt timeout (seconds)"
+                                   FontSize="{StaticResource BodyMdFontSize}"
+                                   Foreground="{DynamicResource TextSecondaryBrush}"
+                                   VerticalAlignment="Center" />
+                        <TextBox Grid.Column="1"
+                                 Text="{Binding PerAttemptTimeoutSecondsInput, Mode=TwoWay}" />
+                    </Grid>
+                </StackPanel>
+            </Border>
+
+            <Border Background="{DynamicResource SurfaceBrush}"
+                    BorderBrush="{DynamicResource BorderBrush}"
+                    BorderThickness="1"
+                    CornerRadius="{StaticResource RadiusCard}"
+                    Padding="{StaticResource PanelPadding}">
+                <StackPanel Spacing="{StaticResource SpaceSm}">
+                    <TextBlock Text="Speed Limit"
+                               FontSize="{StaticResource HeadingSmFontSize}"
+                               FontWeight="{StaticResource HeadingSmFontWeight}"
+                               Foreground="{DynamicResource TextPrimaryBrush}" />
+                    <Grid ColumnDefinitions="Auto,*" ColumnSpacing="{StaticResource SpaceSm}">
+                        <TextBlock Grid.Column="0" Text="Speed limit"
+                                   FontSize="{StaticResource BodyMdFontSize}"
+                                   Foreground="{DynamicResource TextSecondaryBrush}"
+                                   VerticalAlignment="Center" />
+                        <TextBox Grid.Column="1" Text="{Binding SpeedLimitInput, Mode=TwoWay}"
+                                 PlaceholderText="bytes/sec, or &quot;off&quot;" />
+                    </Grid>
+                </StackPanel>
+            </Border>
+
+            <Border Background="{DynamicResource SurfaceBrush}"
+                    BorderBrush="{DynamicResource BorderBrush}"
+                    BorderThickness="1"
+                    CornerRadius="{StaticResource RadiusCard}"
+                    Padding="{StaticResource PanelPadding}">
+                <StackPanel Spacing="{StaticResource SpaceSm}">
+                    <TextBlock Text="Storage"
+                               FontSize="{StaticResource HeadingSmFontSize}"
+                               FontWeight="{StaticResource HeadingSmFontWeight}"
+                               Foreground="{DynamicResource TextPrimaryBrush}" />
+                    <Grid ColumnDefinitions="Auto,*" ColumnSpacing="{StaticResource SpaceSm}">
+                        <TextBlock Grid.Column="0" Text="Repository path"
+                                   FontSize="{StaticResource BodyMdFontSize}"
+                                   Foreground="{DynamicResource TextSecondaryBrush}"
+                                   VerticalAlignment="Center" />
+                        <TextBox Grid.Column="1"
+                                 Text="{Binding RepositoryPathInput, Mode=TwoWay}"
+                                 PlaceholderText="{Binding ResolvedRepositoryPathHint}" />
+                    </Grid>
+                </StackPanel>
+            </Border>
+
+            <Border Background="{DynamicResource SurfaceBrush}"
+                    BorderBrush="{DynamicResource BorderBrush}"
+                    BorderThickness="1"
+                    CornerRadius="{StaticResource RadiusCard}"
+                    Padding="{StaticResource PanelPadding}">
+                <StackPanel Spacing="{StaticResource SpaceSm}">
+                    <TextBlock Text="Appearance"
+                               FontSize="{StaticResource HeadingSmFontSize}"
+                               FontWeight="{StaticResource HeadingSmFontWeight}"
+                               Foreground="{DynamicResource TextPrimaryBrush}" />
+                    <StackPanel Orientation="Horizontal" Spacing="{StaticResource SpaceXs}">
+                        <Panel>
+                            <Button Classes="primary" Content="Dark"
+                                    Command="{Binding SelectDarkThemeCommand}"
+                                    IsVisible="{Binding IsDarkSelected}" />
+                            <Button Classes="secondary" Content="Dark"
+                                    Command="{Binding SelectDarkThemeCommand}"
+                                    IsVisible="{Binding !IsDarkSelected}" />
+                        </Panel>
+                        <Panel>
+                            <Button Classes="primary" Content="Light"
+                                    Command="{Binding SelectLightThemeCommand}"
+                                    IsVisible="{Binding IsLightSelected}" />
+                            <Button Classes="secondary" Content="Light"
+                                    Command="{Binding SelectLightThemeCommand}"
+                                    IsVisible="{Binding !IsLightSelected}" />
+                        </Panel>
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+
+            <TextBlock Text="{Binding ErrorMessage}"
+                       IsVisible="{Binding HasError}"
+                       FontSize="{StaticResource BodyMdFontSize}"
+                       Foreground="{DynamicResource DangerBrush}"
+                       TextWrapping="Wrap" />
+            <TextBlock Text="{Binding StatusMessage}"
+                       IsVisible="{Binding HasStatusMessage}"
+                       FontSize="{StaticResource BodyMdFontSize}"
+                       Foreground="{DynamicResource TextSecondaryBrush}"
+                       TextWrapping="Wrap" />
+
+            <StackPanel Orientation="Horizontal"
+                        HorizontalAlignment="Right"
+                        Spacing="{StaticResource SpaceSm}">
+                <Button Classes="secondary" Content="Back to Downloads"
+                        Command="{Binding CloseSettingsCommand}" />
+                <Button Classes="primary" Content="Save Settings"
+                        Command="{Binding SaveCommand}" />
+            </StackPanel>
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>

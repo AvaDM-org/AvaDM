@@ -1,0 +1,29 @@
+<Application xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="AvaDM.UI.App"
+             RequestedThemeVariant="Dark">
+             <!-- Static default per docs/design.md ("ships dark by default"). App.axaml.cs
+                  overrides this at startup from the saved UiPreferencesRepository choice, and
+                  Settings > Appearance changes it live thereafter. -->
+
+    <Application.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.ThemeDictionaries>
+                <ResourceInclude Source="/Themes/Dark.axaml" x:Key="Dark" />
+                <ResourceInclude Source="/Themes/Light.axaml" x:Key="Light" />
+            </ResourceDictionary.ThemeDictionaries>
+            <ResourceDictionary.MergedDictionaries>
+                <!-- Spacing/radius/typography tokens - constant across both palettes. -->
+                <ResourceInclude Source="/Themes/Metrics.axaml" />
+            </ResourceDictionary.MergedDictionaries>
+        </ResourceDictionary>
+    </Application.Resources>
+
+    <Application.Styles>
+        <FluentTheme />
+        <StyleInclude Source="/Styles/Buttons.axaml" />
+        <StyleInclude Source="/Styles/StatusChip.axaml" />
+        <StyleInclude Source="/Styles/ProgressBar.axaml" />
+        <StyleInclude Source="/Styles/Toast.axaml" />
+    </Application.Styles>
+</Application>

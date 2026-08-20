@@ -1,0 +1,3 @@
+you have the mcp for avalonia, let's now design and create a matching avalonia ui for the console to use the core, with a settings page, perchunk download status and overal download status. based on the current core. the colors should be       
+  simple, no gradient, the ui should have theme capabilities so we can later add color schemes to it, or atleast just a light/dark option, not themes. an add download option, a list of all the downloads, on-going, done, failed, etc. for this,    
+  since it's quite big, write tasks in /docs so you can continue in the future, for now let's design and plan so we're on the same page.

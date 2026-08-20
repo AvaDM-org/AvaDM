@@ -1,0 +1,22 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:controls="using:AvaDM.UI.Controls"
+             mc:Ignorable="d" d:DesignWidth="90" d:DesignHeight="20"
+             x:Class="AvaDM.UI.Controls.StatusChip"
+             x:CompileBindings="False"
+             HorizontalAlignment="Left" VerticalAlignment="Center">
+
+    <!-- Reusable status chip (docs/design.md components.status-chip): a pill Border + TextBlock
+         pairing the semantic style classes already defined in Styles/StatusChip.axaml
+         (Border.chip.success/.info/.warning/.danger/.neutral). The StatusClass styled property
+         is applied to ChipBorder's Classes from code-behind rather than an AXAML binding, since
+         Avalonia's Classes collection has no direct string-binding support - see
+         StatusChip.axaml.cs. x:CompileBindings is off just for this file because the
+         RelativeSource binding below targets this control itself rather than a DataContext
+         view model, so there's no x:DataType to compile against. -->
+    <Border x:Name="ChipBorder" Classes="chip">
+        <TextBlock Text="{Binding StatusText, RelativeSource={RelativeSource AncestorType={x:Type controls:StatusChip}}}" />
+    </Border>
+</UserControl>

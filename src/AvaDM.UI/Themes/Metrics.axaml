@@ -1,0 +1,46 @@
+<ResourceDictionary xmlns="https://github.com/avaloniaui"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    xmlns:sys="clr-namespace:System;assembly=netstandard">
+
+  <!-- Spacing, radius, and typography tokens from docs/design.md. These do not vary between
+       Dark/Light so they live in a plain (non ThemeDictionaries) merged dictionary. -->
+
+  <!-- Spacing (4px base grid) -->
+  <sys:Double x:Key="SpaceBase">4</sys:Double>
+  <sys:Double x:Key="SpaceXs">4</sys:Double>
+  <sys:Double x:Key="SpaceSm">8</sys:Double>
+  <sys:Double x:Key="SpaceMd">12</sys:Double>
+  <sys:Double x:Key="SpaceLg">20</sys:Double>
+
+  <Thickness x:Key="RowPadding">12,8</Thickness>
+  <Thickness x:Key="PanelPadding">16</Thickness>
+  <Thickness x:Key="ToolbarPadding">16,8</Thickness>
+  <Thickness x:Key="ButtonPadding">12,6</Thickness>
+  <Thickness x:Key="IconButtonPadding">6</Thickness>
+
+  <!-- Radius (exactly three - never add a fourth) -->
+  <CornerRadius x:Key="RadiusControl">4</CornerRadius>
+  <CornerRadius x:Key="RadiusCard">6</CornerRadius>
+  <CornerRadius x:Key="RadiusPill">9999</CornerRadius>
+
+  <!-- Typography: "ui" family is left unset (native OS font via FluentTheme). "mono" is used
+       for all numeric/tabular data so digits align. -->
+  <FontFamily x:Key="MonoFontFamily">Cascadia Mono,Consolas,JetBrains Mono,DejaVu Sans Mono,monospace</FontFamily>
+
+  <sys:Double x:Key="HeadingLgFontSize">20</sys:Double>
+  <FontWeight x:Key="HeadingLgFontWeight">SemiBold</FontWeight>
+
+  <sys:Double x:Key="HeadingSmFontSize">15</sys:Double>
+  <FontWeight x:Key="HeadingSmFontWeight">SemiBold</FontWeight>
+
+  <sys:Double x:Key="BodyMdFontSize">13</sys:Double>
+  <FontWeight x:Key="BodyMdFontWeight">Normal</FontWeight>
+
+  <sys:Double x:Key="LabelSmFontSize">11</sys:Double>
+  <FontWeight x:Key="LabelSmFontWeight">Medium</FontWeight>
+  <sys:Double x:Key="LabelSmLetterSpacing">0.22</sys:Double>
+
+  <sys:Double x:Key="NumericMdFontSize">13</sys:Double>
+  <FontWeight x:Key="NumericMdFontWeight">Medium</FontWeight>
+
+</ResourceDictionary>

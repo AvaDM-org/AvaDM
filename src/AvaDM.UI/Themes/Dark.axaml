@@ -1,0 +1,52 @@
+<ResourceDictionary xmlns="https://github.com/avaloniaui"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+  <!-- Palette tokens from docs/design.md palette.dark. Every visible color in the app must
+       resolve through one of these named tokens - never an inline hex value in a view. -->
+
+  <Color x:Key="BackgroundColor">#121417</Color>
+  <Color x:Key="SurfaceColor">#1B1F24</Color>
+  <Color x:Key="SurfaceAltColor">#232830</Color>
+  <Color x:Key="BorderColor">#2E3440</Color>
+  <Color x:Key="TextPrimaryColor">#E6E9EF</Color>
+  <Color x:Key="TextSecondaryColor">#9AA4B2</Color>
+  <Color x:Key="TextDisabledColor">#5B6472</Color>
+  <!-- Shifted one step darker vs. the original 1.0.0 dark ramp (values reused from that same
+       ramp, none invented) so on-primary text on primary clears docs/design.md's ~4.5:1
+       contrast floor - see the version-1.0.1 note there. -->
+  <Color x:Key="PrimaryColor">#2E6E89</Color>
+  <Color x:Key="PrimaryHoverColor">#3E8FB0</Color>
+  <Color x:Key="PrimaryPressedColor">#234F62</Color>
+  <Color x:Key="OnPrimaryColor">#F5FAFC</Color>
+  <Color x:Key="SuccessColor">#4CAF7D</Color>
+  <Color x:Key="WarningColor">#D9A441</Color>
+  <Color x:Key="DangerColor">#D9534F</Color>
+  <Color x:Key="InfoColor">#3E8FB0</Color>
+
+  <SolidColorBrush x:Key="BackgroundBrush" Color="{StaticResource BackgroundColor}" />
+  <SolidColorBrush x:Key="SurfaceBrush" Color="{StaticResource SurfaceColor}" />
+  <SolidColorBrush x:Key="SurfaceAltBrush" Color="{StaticResource SurfaceAltColor}" />
+  <SolidColorBrush x:Key="BorderBrush" Color="{StaticResource BorderColor}" />
+  <SolidColorBrush x:Key="TextPrimaryBrush" Color="{StaticResource TextPrimaryColor}" />
+  <SolidColorBrush x:Key="TextSecondaryBrush" Color="{StaticResource TextSecondaryColor}" />
+  <SolidColorBrush x:Key="TextDisabledBrush" Color="{StaticResource TextDisabledColor}" />
+  <SolidColorBrush x:Key="PrimaryBrush" Color="{StaticResource PrimaryColor}" />
+  <SolidColorBrush x:Key="PrimaryHoverBrush" Color="{StaticResource PrimaryHoverColor}" />
+  <SolidColorBrush x:Key="PrimaryPressedBrush" Color="{StaticResource PrimaryPressedColor}" />
+  <SolidColorBrush x:Key="OnPrimaryBrush" Color="{StaticResource OnPrimaryColor}" />
+  <SolidColorBrush x:Key="SuccessBrush" Color="{StaticResource SuccessColor}" />
+  <SolidColorBrush x:Key="WarningBrush" Color="{StaticResource WarningColor}" />
+  <SolidColorBrush x:Key="DangerBrush" Color="{StaticResource DangerColor}" />
+  <SolidColorBrush x:Key="InfoBrush" Color="{StaticResource InfoColor}" />
+
+  <!-- Status-chip tints: semantic color at ~15% opacity over the current background, full-
+       opacity semantic color for the chip text (docs/design.md components.status-chip). -->
+  <SolidColorBrush x:Key="SuccessChipBackgroundBrush" Color="{StaticResource SuccessColor}" Opacity="0.15" />
+  <SolidColorBrush x:Key="WarningChipBackgroundBrush" Color="{StaticResource WarningColor}" Opacity="0.15" />
+  <SolidColorBrush x:Key="DangerChipBackgroundBrush" Color="{StaticResource DangerColor}" Opacity="0.15" />
+  <SolidColorBrush x:Key="InfoChipBackgroundBrush" Color="{StaticResource InfoColor}" Opacity="0.15" />
+  <!-- Queued/cancelled: neutral, no semantic hue - text-secondary on surface-alt. -->
+  <SolidColorBrush x:Key="NeutralChipBackgroundBrush" Color="{StaticResource SurfaceAltColor}" />
+  <SolidColorBrush x:Key="NeutralChipTextBrush" Color="{StaticResource TextSecondaryColor}" />
+
+</ResourceDictionary>

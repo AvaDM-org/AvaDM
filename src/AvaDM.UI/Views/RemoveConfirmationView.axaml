@@ -1,0 +1,57 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:vm="using:AvaDM.UI.ViewModels"
+             mc:Ignorable="d" d:DesignWidth="380" d:DesignHeight="320"
+             x:Class="AvaDM.UI.Views.RemoveConfirmationView"
+             x:DataType="vm:RemoveConfirmationViewModel">
+    <Border Background="{DynamicResource SurfaceBrush}"
+            BorderBrush="{DynamicResource BorderBrush}"
+            BorderThickness="1"
+            CornerRadius="{StaticResource RadiusCard}"
+            Padding="{StaticResource PanelPadding}"
+            Width="380"
+            IsEnabled="{Binding !IsBusy}">
+        <StackPanel Spacing="{StaticResource SpaceMd}">
+
+            <TextBlock Text="Remove Download"
+                       FontSize="{StaticResource HeadingSmFontSize}"
+                       FontWeight="{StaticResource HeadingSmFontWeight}"
+                       Foreground="{DynamicResource TextPrimaryBrush}" />
+
+            <TextBlock Text="{Binding FileName}"
+                       FontSize="{StaticResource BodyMdFontSize}"
+                       Foreground="{DynamicResource TextPrimaryBrush}"
+                       TextTrimming="CharacterEllipsis" />
+
+            <CheckBox Content="Also delete the downloaded file from disk"
+                      IsChecked="{Binding DeleteFile}" />
+
+            <Border Background="{DynamicResource SurfaceAltBrush}"
+                    BorderBrush="{DynamicResource DangerBrush}"
+                    BorderThickness="1"
+                    CornerRadius="{StaticResource RadiusControl}"
+                    Padding="{StaticResource RowPadding}">
+                <TextBlock Text="{Binding WarningText}"
+                           TextWrapping="Wrap"
+                           FontSize="{StaticResource BodyMdFontSize}"
+                           Foreground="{DynamicResource DangerBrush}" />
+            </Border>
+
+            <TextBlock Text="{Binding ErrorMessage}"
+                       IsVisible="{Binding HasError}"
+                       FontSize="{StaticResource BodyMdFontSize}"
+                       Foreground="{DynamicResource DangerBrush}"
+                       TextWrapping="Wrap" />
+
+            <StackPanel Orientation="Horizontal"
+                        HorizontalAlignment="Right"
+                        Spacing="{StaticResource SpaceSm}">
+                <Button Classes="secondary" Content="Cancel" Command="{Binding CancelCommand}" />
+                <Button Classes="primary" Content="Remove" Command="{Binding ConfirmCommand}" />
+            </StackPanel>
+
+        </StackPanel>
+    </Border>
+</UserControl>

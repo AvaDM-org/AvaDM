@@ -1,0 +1,86 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:vm="using:AvaDM.UI.ViewModels"
+             mc:Ignorable="d" d:DesignWidth="440" d:DesignHeight="420"
+             x:Class="AvaDM.UI.Views.AddDownloadView"
+             x:DataType="vm:AddDownloadViewModel">
+    <Border Background="{DynamicResource SurfaceBrush}"
+            BorderBrush="{DynamicResource BorderBrush}"
+            BorderThickness="1"
+            CornerRadius="{StaticResource RadiusCard}"
+            Padding="{StaticResource PanelPadding}"
+            Width="440"
+            IsEnabled="{Binding !IsBusy}">
+        <StackPanel Spacing="{StaticResource SpaceMd}">
+
+            <TextBlock Text="Add Download"
+                       FontSize="{StaticResource HeadingSmFontSize}"
+                       FontWeight="{StaticResource HeadingSmFontWeight}"
+                       Foreground="{DynamicResource TextPrimaryBrush}" />
+
+            <StackPanel Spacing="{StaticResource SpaceXs}">
+                <TextBlock Text="URL" FontSize="{StaticResource LabelSmFontSize}" Foreground="{DynamicResource TextSecondaryBrush}" />
+                <TextBox Text="{Binding Url}" PlaceholderText="https://example.com/file.zip" />
+            </StackPanel>
+
+            <StackPanel Spacing="{StaticResource SpaceXs}">
+                <TextBlock Text="Save to" FontSize="{StaticResource LabelSmFontSize}" Foreground="{DynamicResource TextSecondaryBrush}" />
+                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="{StaticResource SpaceSm}">
+                    <TextBox Grid.Column="0" Text="{Binding DestinationPath}" PlaceholderText="Default download folder" />
+                    <Button Grid.Column="1" Classes="secondary" Content="Browse..." Name="BrowseButton" Click="OnBrowseClick" />
+                </Grid>
+            </StackPanel>
+
+            <StackPanel Spacing="{StaticResource SpaceXs}">
+                <Button Classes="icon" Command="{Binding ToggleAdvancedCommand}" HorizontalAlignment="Left">
+                    <StackPanel Orientation="Horizontal" Spacing="{StaticResource SpaceXs}">
+                        <Panel>
+                            <TextBlock Text="&#9656;" IsVisible="{Binding !IsAdvancedExpanded}" />
+                            <TextBlock Text="&#9662;" IsVisible="{Binding IsAdvancedExpanded}" />
+                        </Panel>
+                        <TextBlock Text="Advanced options" FontSize="{StaticResource BodyMdFontSize}" />
+                    </StackPanel>
+                </Button>
+                <StackPanel IsVisible="{Binding IsAdvancedExpanded}" Spacing="{StaticResource SpaceSm}" Margin="{StaticResource RowPadding}">
+                    <Grid ColumnDefinitions="Auto,*" ColumnSpacing="{StaticResource SpaceSm}">
+                        <TextBlock Grid.Column="0" Text="Chunks" VerticalAlignment="Center" FontSize="{StaticResource BodyMdFontSize}" Foreground="{DynamicResource TextSecondaryBrush}" Width="90" />
+                        <TextBox Grid.Column="1" Text="{Binding ChunkCountInput}" PlaceholderText="Default" />
+                    </Grid>
+                    <Grid ColumnDefinitions="Auto,*" ColumnSpacing="{StaticResource SpaceSm}">
+                        <TextBlock Grid.Column="0" Text="Speed limit" VerticalAlignment="Center" FontSize="{StaticResource BodyMdFontSize}" Foreground="{DynamicResource TextSecondaryBrush}" Width="90" />
+                        <TextBox Grid.Column="1" Text="{Binding SpeedLimitInput}" PlaceholderText="bytes/sec, or &quot;off&quot;" />
+                    </Grid>
+                </StackPanel>
+            </StackPanel>
+
+            <TextBlock Text="{Binding ErrorMessage}" IsVisible="{Binding HasError}"
+                       FontSize="{StaticResource BodyMdFontSize}" Foreground="{DynamicResource DangerBrush}"
+                       TextWrapping="Wrap" />
+
+            <Border IsVisible="{Binding HasConflict}"
+                    Background="{DynamicResource SurfaceAltBrush}"
+                    BorderBrush="{DynamicResource WarningBrush}"
+                    BorderThickness="1"
+                    CornerRadius="{StaticResource RadiusControl}"
+                    Padding="{StaticResource RowPadding}">
+                <StackPanel Spacing="{StaticResource SpaceSm}">
+                    <TextBlock Text="{Binding ConflictMessage}" TextWrapping="Wrap"
+                               FontSize="{StaticResource BodyMdFontSize}" Foreground="{DynamicResource TextPrimaryBrush}" />
+                    <StackPanel Orientation="Horizontal" Spacing="{StaticResource SpaceSm}">
+                        <Button Classes="secondary" Content="Resume" Command="{Binding ResolveResumeCommand}" />
+                        <Button Classes="secondary" Content="Overwrite" Command="{Binding ResolveOverwriteCommand}" />
+                        <Button Classes="secondary" Content="Rename &amp; retry" Command="{Binding ResolveRenameCommand}" />
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="{StaticResource SpaceSm}">
+                <Button Classes="secondary" Content="Cancel" Command="{Binding CancelCommand}" />
+                <Button Classes="primary" Content="Add Download" Command="{Binding SubmitCommand}" IsVisible="{Binding !HasConflict}" />
+            </StackPanel>
+
+        </StackPanel>
+    </Border>
+</UserControl>

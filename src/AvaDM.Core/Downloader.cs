@@ -391,39 +391,51 @@ public class Downloader
         handle.SetChunkStatus(chunkIndex, ChunkStatus.Downloading);
         try
         {
-            await pipeline.ExecuteAsync(async ct =>
+            // The wait for resume deliberately sits outside pipeline.ExecuteAsync, on the
+            // download's own (not time-boxed) cancellationToken - never on the per-attempt `ct`
+            // Polly hands the delegate below. That `ct` is cancelled by AddTimeout on a fixed
+            // wall clock regardless of what's being awaited, so a pause held inside it would
+            // eventually trip TimeoutRejectedException, get retried, and immediately hit the
+            // still-paused wait again - a fast retry loop that burns every attempt while paused.
+            // Instead, a pause request ends the current attempt cleanly (IsPaused check below,
+            // no exception raised) and the next attempt's Range request just continues from
+            // wherever currentOffset landed, once resumed.
+            while (currentOffset <= end)
             {
-                var req = new HttpRequestMessage(HttpMethod.Get, uri);
-                req.Headers.Range = new RangeHeaderValue(currentOffset, end);
+                await handle.PauseTokenSource.WaitWhilePausedAsync(cancellationToken);
 
-                using var resp = await _client.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, ct);
-                resp.EnsureSuccessStatusCode();
-
-                await using var stream = await resp.Content.ReadAsStreamAsync(ct);
-
-                var buffer = ArrayPool<byte>.Shared.Rent(BufferSize);
-                try
+                await pipeline.ExecuteAsync(async ct =>
                 {
-                    while (true)
+                    var req = new HttpRequestMessage(HttpMethod.Get, uri);
+                    req.Headers.Range = new RangeHeaderValue(currentOffset, end);
+
+                    using var resp = await _client.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, ct);
+                    resp.EnsureSuccessStatusCode();
+
+                    await using var stream = await resp.Content.ReadAsStreamAsync(ct);
+
+                    var buffer = ArrayPool<byte>.Shared.Rent(BufferSize);
+                    try
                     {
-                        await handle.PauseTokenSource.WaitWhilePausedAsync(ct);
+                        while (!handle.PauseTokenSource.IsPaused)
+                        {
+                            var bytesRead = await stream.ReadAsync(buffer, ct);
+                            if (bytesRead == 0)
+                                break;
 
-                        var bytesRead = await stream.ReadAsync(buffer, ct);
-                        if (bytesRead == 0)
-                            break;
+                            await handle.SpeedLimiter.WaitForTokensAsync(bytesRead, ct);
 
-                        await handle.SpeedLimiter.WaitForTokensAsync(bytesRead, ct);
-
-                        await RandomAccess.WriteAsync(fileHandle, buffer.AsMemory(0, bytesRead), currentOffset, ct);
-                        currentOffset += bytesRead;
-                        handle.AddChunkBytesDownloaded(chunkIndex, bytesRead);
+                            await RandomAccess.WriteAsync(fileHandle, buffer.AsMemory(0, bytesRead), currentOffset, ct);
+                            currentOffset += bytesRead;
+                            handle.AddChunkBytesDownloaded(chunkIndex, bytesRead);
+                        }
                     }
-                }
-                finally
-                {
-                    ArrayPool<byte>.Shared.Return(buffer);
-                }
-            }, cancellationToken);
+                    finally
+                    {
+                        ArrayPool<byte>.Shared.Return(buffer);
+                    }
+                }, cancellationToken);
+            }
 
             handle.SetChunkStatus(chunkIndex, ChunkStatus.Completed);
         }

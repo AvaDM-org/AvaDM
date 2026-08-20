@@ -1,0 +1,17 @@
+<Styles xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+  <!-- Transient toast/snackbar card (docs/ui-implementation-plan.md polish-pass: design.md's
+       layout has no log panel, so non-terminal DownloadHandle.LogMessage text surfaces here
+       instead). Surface-alt background (reads as "floating" above the row list's surface
+       cards), 1px border, card radius - same visual language as everything else, no new
+       elevation/shadow concept per design.md's flat-fills guardrail. -->
+  <Style Selector="Border.toast">
+    <Setter Property="Background" Value="{DynamicResource SurfaceAltBrush}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="CornerRadius" Value="{StaticResource RadiusCard}" />
+    <Setter Property="Padding" Value="{StaticResource PanelPadding}" />
+  </Style>
+
+</Styles>
