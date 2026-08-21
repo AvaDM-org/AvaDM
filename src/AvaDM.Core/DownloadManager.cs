@@ -270,8 +270,16 @@ public sealed class DownloadManager
 
         // Runs regardless of throttling and regardless of success/failure/cancellation, so the
         // terminal state is always recorded even if the last throttled write is stale.
-        handle.Completion.ContinueWith(_ =>
+        handle.Completion.ContinueWith(t =>
         {
+            // Reading Exception is what marks a faulted antecedent "observed" - without it, the
+            // fault sits unobserved until the GC finalizes the Task, and the runtime rethrows it
+            // on the finalizer thread, which the global TaskScheduler.UnobservedTaskException
+            // handler then logs as an alarming "Unobserved task exception" even though the
+            // failure is already handled cleanly below via handle.State.
+            if (t.Exception is not null)
+                handle.Log($"Download failed: {t.Exception.GetBaseException().Message}");
+
             // FinalizeDownloadAsync catches and logs its own exceptions, so discarding the task
             // here (rather than awaiting it) is intentional, not an oversight.
             _ = FinalizeDownloadAsync(id, handle);
