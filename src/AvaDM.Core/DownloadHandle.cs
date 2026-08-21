@@ -58,6 +58,7 @@ public sealed class DownloadHandle
     private volatile DownloadState _state = DownloadState.Pending;
     private volatile ChunkTracker[] _chunkTrackers = [];
     private readonly SpeedTracker _speedTracker = new();
+    private readonly Lock _progressReportLock = new();
 
     internal DownloadHandle(Uri uri, string destinationPath, DownloadOptions options)
     {
@@ -239,22 +240,34 @@ public sealed class DownloadHandle
         ReportProgress(force: true);
     }
 
+    /// <summary>Every parallel chunk task calls this on its own thread as it writes bytes, so
+    /// the throttle check and the snapshot-plus-invoke below are serialized under a lock rather
+    /// than left to race: without it, two concurrent callers can each read <see cref="BytesDownloaded"/>
+    /// at slightly different moments and then invoke/post their (differently-sized) snapshots in
+    /// whichever order the thread scheduler happens to run them, which can deliver a smaller,
+    /// stale total to subscribers after a larger one already arrived - visible as the UI's
+    /// progress bar momentarily jumping back. Serializing snapshot-capture-and-invoke here means
+    /// each subscriber notification always reflects a state at least as recent as the previous
+    /// one.</summary>
     internal void ReportProgress(bool force = false)
     {
         if (ProgressChanged is null && ChunksChanged is null)
             return;
 
-        var now = Stopwatch.GetTimestamp();
-        if (!force)
+        lock (_progressReportLock)
         {
-            var last = Interlocked.Read(ref _lastProgressReportTimestamp);
-            if (last != 0 && Stopwatch.GetElapsedTime(last, now) < ProgressReportInterval)
-                return;
-        }
-        Interlocked.Exchange(ref _lastProgressReportTimestamp, now);
+            var now = Stopwatch.GetTimestamp();
+            if (!force)
+            {
+                var last = Interlocked.Read(ref _lastProgressReportTimestamp);
+                if (last != 0 && Stopwatch.GetElapsedTime(last, now) < ProgressReportInterval)
+                    return;
+            }
+            Interlocked.Exchange(ref _lastProgressReportTimestamp, now);
 
-        ProgressChanged?.Invoke(this, new DownloadProgress(State, BytesDownloaded, TotalBytes, _speedTracker.AddSample(BytesDownloaded)));
-        ChunksChanged?.Invoke(this, Chunks);
+            ProgressChanged?.Invoke(this, new DownloadProgress(State, BytesDownloaded, TotalBytes, _speedTracker.AddSample(BytesDownloaded)));
+            ChunksChanged?.Invoke(this, Chunks);
+        }
     }
 
     /// <summary>Mutable per-chunk state, updated concurrently by that chunk's own download task
