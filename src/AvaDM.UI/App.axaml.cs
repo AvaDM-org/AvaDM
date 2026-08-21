@@ -91,6 +91,14 @@ public partial class App : Application
                 mainWindowViewModel.DownloadListViewModel.ShowToast("AvaDM is already running.");
             }));
 
+            // A login-autostart entry or applications-menu shortcut written by an earlier run can
+            // point at an executable that isn't there any more - an AppImage's /tmp mount path is
+            // gone the moment the process that wrote it exits, and a portable build can simply be
+            // moved. Repairing them here means the next login works, instead of the desktop
+            // reporting "Could not find the program ..." and AvaDM silently not starting.
+            AutoStartService.RefreshIfStale();
+            DesktopShortcutService.RefreshIfStale();
+
             // Fire-and-forget: CheckForUpdatesAsync swallows its own failures (silent: true means
             // "don't surface an error/"you're up to date" message", not "don't check"), so there's
             // nothing here to await or observe. An available update still updates

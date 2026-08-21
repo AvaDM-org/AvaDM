@@ -151,10 +151,10 @@ public sealed class UpdateService(HttpClient httpClient)
 
         // For an AppImage, Environment.ProcessPath points inside the read-only FUSE mount
         // (/tmp/.mount_.../usr/bin/...) that the AppImage runtime extracts itself into - not the
-        // actual .AppImage file on disk. The APPIMAGE env var (see UpdateChannelDetector) holds
-        // that real, writable path, which is what needs to be replaced.
+        // actual .AppImage file on disk. AppPaths resolves that real, writable path (from the
+        // APPIMAGE env var), which is what needs to be replaced.
         var exePath = update.Channel == UpdateChannel.LinuxAppImage
-            ? Environment.GetEnvironmentVariable("APPIMAGE")
+            ? AppPaths.AppImagePath
                 ?? throw new InvalidOperationException("Couldn't determine the running AppImage's path (APPIMAGE env var not set).")
             : Environment.ProcessPath
                 ?? throw new InvalidOperationException("Couldn't determine the running executable's path.");

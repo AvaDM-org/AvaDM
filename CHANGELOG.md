@@ -11,6 +11,25 @@ fail fast if its version has no section here**. Add the entry before pushing the
 
 ## [Unreleased]
 
+## [1.1.2] - 2026-08-21
+
+Fixes login autostart and the Linux applications-menu shortcut for AppImage builds.
+
+### Fixed
+
+- **The autostart entry and the Linux applications-menu shortcut pointed into a temporary AppImage
+  mount.** Both were written from `Environment.ProcessPath`, which for an AppImage is a path inside
+  the `/tmp/.mount_*` FUSE mount that exists only while that process runs. After a reboot the
+  desktop reported `Could not find the program '/tmp/.mount_.../usr/bin/AvaDM.UI'`, the shortcut
+  did nothing, and AvaDM did not start at login. Both entries now point at the real `.AppImage`
+  file (the same `APPIMAGE` resolution the updater already used), and the menu shortcut's icon is
+  installed to `~/.local/share/icons/hicolor/256x256/apps/avadm.png` instead of being referenced
+  inside that same temporary mount.
+- **Existing broken entries repair themselves.** At startup AvaDM rewrites an autostart entry or
+  menu shortcut that no longer matches where it actually lives — which also covers a portable build
+  that was moved or an AppImage that was replaced at a new path. Entries the user turned off stay
+  off.
+
 ## [1.1.1] - 2026-08-21
 
 Repairs the auto-updater, which was broken or incomplete on four of the six distribution channels.
@@ -82,7 +101,8 @@ First release.
 - Packaging for six formats: Windows installer and portable zip, Linux tar.gz, AppImage and `.deb`,
   and macOS `.dmg` (x64 and arm64).
 
-[Unreleased]: https://github.com/AvaDM-org/AvaDM/compare/v1.1.1...HEAD
+[Unreleased]: https://github.com/AvaDM-org/AvaDM/compare/v1.1.2...HEAD
+[1.1.2]: https://github.com/AvaDM-org/AvaDM/compare/v1.1.1...v1.1.2
 [1.1.1]: https://github.com/AvaDM-org/AvaDM/compare/v1.1.0...v1.1.1
 [1.1.0]: https://github.com/AvaDM-org/AvaDM/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/AvaDM-org/AvaDM/releases/tag/v1.0.0

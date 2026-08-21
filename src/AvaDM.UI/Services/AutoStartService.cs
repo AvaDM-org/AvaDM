@@ -18,6 +18,12 @@ namespace AvaDM.UI.Services;
 /// The registered command line includes <c>--minimized</c> (see <see cref="App"/>'s handling of
 /// <c>IClassicDesktopStyleApplicationLifetime.Args</c>) so a login-triggered launch starts hidden
 /// in the tray instead of popping the main window, matching other download managers' behavior.
+///
+/// The command points at <see cref="AppPaths.LaunchExecutablePath"/>, not
+/// <see cref="Environment.ProcessPath"/> - see that class for why the difference matters under an
+/// AppImage. Because an entry can also go stale on its own (the user moves a portable build,
+/// reinstalls elsewhere, or wrote the entry from an older build with the AppImage bug),
+/// <see cref="RefreshIfStale"/> rewrites it at startup whenever it no longer matches reality.
 /// </summary>
 public static class AutoStartService
 {
@@ -75,6 +81,54 @@ public static class AutoStartService
         return false;
     }
 
+    /// <summary>Rewrites an already-enabled autostart entry when it no longer matches what this
+    /// build would write - i.e. it points at an executable that has since moved or, for a build
+    /// launched as an AppImage, at a <c>/tmp/.mount_*</c> path that stopped existing the moment
+    /// the writing process exited. Called once at startup so a broken entry heals itself on the
+    /// next successful launch instead of requiring the user to toggle the setting off and on.
+    /// Does nothing when autostart is off - re-enabling it is the user's decision, not ours.</summary>
+    public static void RefreshIfStale()
+    {
+        try
+        {
+            if (!IsEnabled() || IsUpToDate())
+                return;
+
+            Log.Information("Autostart entry is stale - rewriting it for the current executable path");
+            SetEnabled(true);
+        }
+        catch (Exception ex)
+        {
+            // Same best-effort contract as the rest of this class: autostart is a convenience, and
+            // nothing here is worth failing startup over.
+            Log.Warning(ex, "Couldn't refresh the autostart entry");
+        }
+    }
+
+    /// <summary>Whether the entry on disk is byte-for-byte what <see cref="SetEnabled"/> would
+    /// write right now. Comparing whole contents (rather than just the path) also picks up changes
+    /// to the entry's own template between versions.</summary>
+    private static bool IsUpToDate()
+    {
+        var exePath = AppPaths.LaunchExecutablePath;
+        if (exePath is null)
+            return true; // Nothing better to write - leave whatever is there alone.
+
+        if (OperatingSystem.IsWindows())
+        {
+            using var key = Registry.CurrentUser.OpenSubKey(RunKeyPath);
+            return key?.GetValue(RunValueName) as string == BuildWindowsCommand(exePath);
+        }
+
+        if (OperatingSystem.IsLinux())
+            return File.ReadAllText(GetLinuxDesktopFilePath()) == BuildLinuxDesktopEntry(exePath);
+
+        if (OperatingSystem.IsMacOS())
+            return File.ReadAllText(GetMacLaunchAgentPath()) == BuildMacLaunchAgent(exePath);
+
+        return true;
+    }
+
     [System.Runtime.Versioning.SupportedOSPlatform("windows")]
     private static bool SetEnabledWindows(bool enabled)
     {
@@ -88,11 +142,11 @@ public static class AutoStartService
             return true;
         }
 
-        var exePath = GetExecutablePath();
+        var exePath = AppPaths.LaunchExecutablePath;
         if (exePath is null)
             return false;
 
-        key.SetValue(RunValueName, $"\"{exePath}\" --minimized");
+        key.SetValue(RunValueName, BuildWindowsCommand(exePath));
         return true;
     }
 
@@ -107,23 +161,12 @@ public static class AutoStartService
             return true;
         }
 
-        var exePath = GetExecutablePath();
+        var exePath = AppPaths.LaunchExecutablePath;
         if (exePath is null)
             return false;
 
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-        File.WriteAllText(
-            path,
-            $"""
-             [Desktop Entry]
-             Type=Application
-             Name=AvaDM
-             Comment=Start AvaDM download manager at login
-             Exec="{exePath}" --minimized
-             Icon=avadm
-             Terminal=false
-             X-GNOME-Autostart-enabled=true
-             """);
+        File.WriteAllText(path, BuildLinuxDesktopEntry(exePath));
         return true;
     }
 
@@ -138,52 +181,53 @@ public static class AutoStartService
             return true;
         }
 
-        var exePath = GetExecutablePath();
+        var exePath = AppPaths.LaunchExecutablePath;
         if (exePath is null)
             return false;
 
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-        File.WriteAllText(
-            path,
-            $"""
-             <?xml version="1.0" encoding="UTF-8"?>
-             <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-             <plist version="1.0">
-             <dict>
-                 <key>Label</key>
-                 <string>com.avadm.app</string>
-                 <key>ProgramArguments</key>
-                 <array>
-                     <string>{exePath}</string>
-                     <string>--minimized</string>
-                 </array>
-                 <key>RunAtLoad</key>
-                 <true/>
-             </dict>
-             </plist>
-             """);
+        File.WriteAllText(path, BuildMacLaunchAgent(exePath));
         return true;
     }
 
-    private static string GetLinuxDesktopFilePath()
-    {
-        var configHome = Environment.GetEnvironmentVariable("XDG_CONFIG_HOME");
-        var baseDir = string.IsNullOrEmpty(configHome)
-            ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".config")
-            : configHome;
-        return Path.Combine(baseDir, "autostart", LinuxDesktopFileName);
-    }
+    private static string BuildWindowsCommand(string exePath) => $"\"{exePath}\" --minimized";
+
+    private static string BuildLinuxDesktopEntry(string exePath) =>
+        $"""
+         [Desktop Entry]
+         Type=Application
+         Name=AvaDM
+         Comment=Start AvaDM download manager at login
+         Exec="{exePath}" --minimized
+         Icon={AppPaths.EnsureLinuxIconPath() ?? "avadm"}
+         Terminal=false
+         X-GNOME-Autostart-enabled=true
+         """;
+
+    private static string BuildMacLaunchAgent(string exePath) =>
+        $"""
+         <?xml version="1.0" encoding="UTF-8"?>
+         <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+         <plist version="1.0">
+         <dict>
+             <key>Label</key>
+             <string>com.avadm.app</string>
+             <key>ProgramArguments</key>
+             <array>
+                 <string>{exePath}</string>
+                 <string>--minimized</string>
+             </array>
+             <key>RunAtLoad</key>
+             <true/>
+         </dict>
+         </plist>
+         """;
+
+    private static string GetLinuxDesktopFilePath() =>
+        Path.Combine(AppPaths.GetConfigHome(), "autostart", LinuxDesktopFileName);
 
     private static string GetMacLaunchAgentPath() =>
         Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
             "Library", "LaunchAgents", MacLaunchAgentFileName);
-
-    /// <summary>The path to write into the OS autostart entry. <see cref="Environment.ProcessPath"/>
-    /// is the running executable for a published apphost/self-contained build - the normal way an
-    /// end user runs AvaDM. Under <c>dotnet run</c>/<c>dotnet AvaDM.UI.dll</c> during development
-    /// this resolves to the <c>dotnet</c> host itself with no dll argument, so autostart registered
-    /// from a dev build won't relaunch correctly; that's an accepted limitation of a dev workflow,
-    /// not something end users hit.</summary>
-    private static string? GetExecutablePath() => Environment.ProcessPath;
 }
