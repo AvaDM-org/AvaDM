@@ -11,6 +11,31 @@ fail fast if its version has no section here**. Add the entry before pushing the
 
 ## [Unreleased]
 
+## [1.2.1] - 2026-08-22
+
+Fixes the download progress bar jitter reported in #10, plus two related consistency bugs found
+along the way.
+
+### Fixed
+
+- **Chunk progress bars visually jittered back and forth during a download.** The chunk row's
+  layout had the progress bar sharing width with an auto-sized speed-text column; since the
+  formatted speed string's length genuinely varies ("-", "45.2 KB/s", "1.2 MB/s", ...), every such
+  change resized that column and visually squeezed or expanded the bar next to it, indistinguishable
+  from the bar's own value moving even though it never did. The speed column is now a fixed width.
+- **Resuming a download briefly wiped its progress to zero before snapping back.** A freshly
+  started handle is returned before its own HEAD request/`.avadm`-footer read has finished, so a
+  resumed row could get attached to a still-zero, chunk-less handle and momentarily show 0%/no
+  chunks before the real (already-substantial) progress arrived and corrected it.
+- **A download that failed and auto-retried could leave its row permanently stuck**, showing the
+  stale failed state indefinitely while the replacement download kept running invisibly in the
+  background - and a user resuming that stuck row could end up racing a second handle against the
+  first on the same `.avadm` file. The row now re-syncs once its handle reaches any terminal state,
+  and starting a new attempt for an id that already has an active handle now cancels the old one
+  first.
+- **Concurrent chunk-download threads could report progress to the UI out of order**, occasionally
+  delivering a smaller, stale byte total after a larger one had already gone out.
+
 ## [1.2.0] - 2026-08-21
 
 Shows which version you are running.
