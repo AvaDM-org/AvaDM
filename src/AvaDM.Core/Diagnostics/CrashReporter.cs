@@ -12,8 +12,7 @@ namespace AvaDM.Core.Diagnostics;
 /// </summary>
 public static class CrashReporter
 {
-    // TODO: set the real GitHub repo URL once AvaDM has one.
-    private const string GitHubRepoUrl = "https://github.com/OWNER/REPO";
+    private const string GitHubRepoUrl = "https://github.com/AvaDM-org/AvaDM";
 
     /// <summary>Opens a pre-filled GitHub issue page for <paramref name="exception"/> and reveals
     /// the current log file so the user can attach it. Every step is best-effort and independent:
