@@ -1,12 +1,13 @@
 # AvaDM
 
-Cross-platform (Linux/Windows, macOS later) open-source download manager in C#/.NET — a modern alternative to XDM/IDM/FDM. Name = **Ava**lonia (planned UI) + **DM**.
+Cross-platform (Linux/Windows, macOS later) open-source download manager in C#/.NET — a modern alternative to XDM/IDM/FDM. Name = **Ava**lonia + **DM**.
 
 ## Structure
 
 - `src/AvaDM.Core` — download engine and persistence. `Downloader.cs` is the transfer engine; `DownloadManager.cs` is the UI-agnostic orchestration layer.
-- `src/AvaDM.Console` — Terminal.Gui console harness for exercising multiple downloads and their controls during development.
-- `AvaDM.UI` *(planned)* — Avalonia desktop UI, not started.
+- `src/AvaDM.Console` — Terminal.Gui console harness for exercising multiple downloads and their controls during development; predates the Avalonia UI and is kept as a lightweight way to drive the engine directly.
+- `src/AvaDM.UI` — Avalonia desktop UI (the primary, user-facing app). Runs on Linux/Windows now; macOS is untested but not expected to need engine-level changes.
+- `test/AvaDM.Core.Tests` — xUnit tests for the core engine (`DownloadManagerTests`, `SpeedTrackerTests`).
 
 ## Current engine
 
@@ -45,9 +46,20 @@ The core targets `net10.0` and exposes a live `DownloadHandle` for each transfer
 
 `DownloadManager` provides conflict checking/resolution, starting downloads, persisted records, and lookup of a live handle for downloads in the current process.
 
+## Desktop UI (AvaDM.UI)
+
+Avalonia 12 + CommunityToolkit.Mvvm. No DI container — `App.axaml.cs` hand-wires the object graph (settings, `HttpClient`, `DownloadManager`, view models) once in `OnFrameworkInitializationCompleted`, mirroring `AvaDM.Console/Program.cs`'s style. `MainWindow` has no persistent nav chrome: `MainWindowViewModel` swaps a single `ContentControl` between the two page view models, each carrying its own way back/forward.
+
+- **Downloads page** (`DownloadListViewModel`/`DownloadRowViewModel`) — toolbar with status filter tabs (All/Active/Completed/Failed) and a debounced text search; each row expands to show per-chunk progress and exposes pause/resume/cancel/remove; double-clicking a completed row opens the file or its containing folder (configurable). A row with no live handle for this process (e.g. after a restart) shows as a derived **Interrupted** status rather than a stale "Running" — downloads are not yet auto-resumed on startup, see Roadmap. Cancel and Remove each go through a confirmation overlay; non-terminal `DownloadHandle.LogMessage` events surface as toast notifications. A 1-second reconciliation poll keeps the list in sync with downloads started/finished elsewhere.
+- **Settings page** (`SettingsViewModel`) — staged edits over the shared `DownloadSettings` (download dir, chunk count, retries, speed limit, repository path), plus UI-only preferences: appearance (dark/light), window-closing behavior (minimize to tray vs. close), completed-item double-click action, start-with-system (autostart), and a log-folder shortcut.
+- **Tray icon** (`TrayIconService`) — click to show/hide the main window; native context menu lists in-progress downloads with live progress text and inline pause/resume, plus Exit. When "minimize to tray" is enabled, closing the main window hides it instead of exiting; the tray menu's own Exit always does a real shutdown.
+- **Preferences persistence** (`UiPreferencesRepository`) — a small Dapper/`Microsoft.Data.Sqlite` key-value table in the *same* SQLite file as the download index, for UI-only prefs (theme, close-to-tray, double-click action). Start-with-system is the one exception: it isn't mirrored here, because the actual source of truth is the OS's own autostart entry (see below).
+- **Autostart** (`AutoStartService`) — enables/disables login autostart via each OS's native mechanism directly (Windows `HKCU\...\Run` registry value, Linux `~/.config/autostart/*.desktop`, macOS `~/Library/LaunchAgents/*.plist`), reading that entry back live rather than trusting a cached flag. The registered launch command passes `--minimized`; `App.axaml.cs` hides the main window immediately after it opens when that flag is present, so a login-triggered launch starts hidden in the tray.
+- **Crash handling** — `AppLogging` (Serilog rolling file log, see `LogDirectoryHint`/`OpenLogFolderCommand` in Settings) and `CrashReporter` (opens a pre-filled GitHub "new issue" page and reveals the log file) are wired as global exception handlers in `Program.cs` (`AppDomain`/`TaskScheduler`) and `App.axaml.cs` (`Dispatcher.UIThread.UnhandledException`).
+
 ## Console harness
 
-The current console app uses Terminal.Gui 2.x rather than the old hand-rolled cursor-positioning panel. It displays aggregate and per-chunk progress, logs, and an interactive command field. Supported commands include:
+The console app uses Terminal.Gui 2.x rather than the old hand-rolled cursor-positioning panel. It displays aggregate and per-chunk progress, logs, and an interactive command field. Supported commands include:
 
 - `start <url> [destPath] [chunkCount] [--resume|--overwrite|--rename <path>]`
 - `pause <id>`, `resume <id>`, `cancel <id>`
@@ -56,10 +68,9 @@ The current console app uses Terminal.Gui 2.x rather than the old hand-rolled cu
 
 ## Roadmap (not yet implemented — don't assume these exist)
 
-- Avalonia desktop UI: download queue view, per-chunk progress, pause/resume/cancel controls, settings, and system tray integration.
-- Automatic startup recovery/rehydration of persisted downloads and a first-class persisted queue.
+- Automatic startup recovery/rehydration of persisted downloads (currently they show as "Interrupted" until manually restarted) and a first-class persisted queue.
 - Retry-with-resume within a partially written chunk, dynamic chunk tuning, ETag/Last-Modified revalidation, and richer server/protocol support.
-- Automated end-to-end coverage for network failures, disk errors, malformed resume data, and application restart scenarios.
+- Automated end-to-end coverage for network failures, disk errors, malformed resume data, and application restart scenarios — `test/AvaDM.Core.Tests` currently covers `DownloadManager` and `SpeedTracker` at a narrower scope.
 
 ## Notes
 

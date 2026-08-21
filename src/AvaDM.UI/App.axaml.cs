@@ -63,6 +63,17 @@ public partial class App : Application
             var window = new MainWindow { DataContext = mainWindowViewModel };
             desktop.MainWindow = window;
 
+            // Set by AutoStartService's registered autostart command so a login-triggered launch
+            // starts hidden in the tray instead of popping the main window. Avalonia's classic
+            // desktop lifetime shows desktop.MainWindow unconditionally once this method returns,
+            // so hiding it in the Opened handler (rather than skipping the MainWindow assignment
+            // above) is what avoids that - it costs a brief window flash instead of a more
+            // invasive change to how MainWindow/TrayIconService are wired up.
+            if (desktop.Args?.Contains("--minimized") == true)
+            {
+                window.Opened += (_, _) => window.Hide();
+            }
+
             var trayIcon = TrayIcon.GetIcons(this)![0];
             _trayIconService = new TrayIconService(desktop, window, mainWindowViewModel, trayIcon);
         }

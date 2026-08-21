@@ -71,6 +71,15 @@ public sealed partial class SettingsViewModel : ViewModelBase
     [NotifyPropertyChangedFor(nameof(IsDoubleClickOpenContainingFolderSelected))]
     private DownloadDoubleClickAction _doubleClickAction;
 
+    /// <summary>Whether AvaDM launches automatically at login. Unlike the toggles above, this
+    /// isn't mirrored through <see cref="UiPreferencesRepository"/> - <see cref="AutoStartService"/>
+    /// reads/writes the OS's own autostart entry directly, since that entry (not our preferences
+    /// store) is what the OS actually acts on, and it can be toggled outside the app.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsStartWithSystemEnabledSelected))]
+    [NotifyPropertyChangedFor(nameof(IsStartWithSystemDisabledSelected))]
+    private bool _startWithSystem;
+
     public SettingsViewModel(
         DownloadSettings settings,
         UiPreferencesRepository uiPreferences,
@@ -92,6 +101,7 @@ public sealed partial class SettingsViewModel : ViewModelBase
         _isDarkTheme = Application.Current!.RequestedThemeVariant == ThemeVariant.Dark;
         _closeToTray = closeToTray;
         _doubleClickAction = doubleClickAction;
+        _startWithSystem = AutoStartService.IsEnabled();
     }
 
     public string ResolvedRepositoryPathHint => _settings.GetResolvedRepositoryPath();
@@ -109,6 +119,10 @@ public sealed partial class SettingsViewModel : ViewModelBase
     public bool IsCloseToTraySelected => CloseToTray;
 
     public bool IsCloseAppSelected => !CloseToTray;
+
+    public bool IsStartWithSystemEnabledSelected => StartWithSystem;
+
+    public bool IsStartWithSystemDisabledSelected => !StartWithSystem;
 
     public bool IsDoubleClickOpenFileSelected => DoubleClickAction == DownloadDoubleClickAction.OpenFile;
 
@@ -132,6 +146,34 @@ public sealed partial class SettingsViewModel : ViewModelBase
     {
         CloseToTray = false;
         await _uiPreferences.SetValueAsync(UiPreferencesRepository.CloseToTrayKey, "false");
+    }
+
+    [RelayCommand]
+    private void SelectStartWithSystemEnabled()
+    {
+        ErrorMessage = null;
+        if (AutoStartService.SetEnabled(true))
+        {
+            StartWithSystem = true;
+        }
+        else
+        {
+            ErrorMessage = "Couldn't enable starting AvaDM at login.";
+        }
+    }
+
+    [RelayCommand]
+    private void SelectStartWithSystemDisabled()
+    {
+        ErrorMessage = null;
+        if (AutoStartService.SetEnabled(false))
+        {
+            StartWithSystem = false;
+        }
+        else
+        {
+            ErrorMessage = "Couldn't disable starting AvaDM at login.";
+        }
     }
 
     [RelayCommand]

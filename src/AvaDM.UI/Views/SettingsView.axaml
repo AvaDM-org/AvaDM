@@ -231,6 +231,40 @@
                 </StackPanel>
             </Border>
 
+            <Border Background="{DynamicResource SurfaceBrush}"
+                    BorderBrush="{DynamicResource BorderBrush}"
+                    BorderThickness="1"
+                    CornerRadius="{StaticResource RadiusCard}"
+                    Padding="{StaticResource PanelPadding}">
+                <StackPanel Spacing="{StaticResource SpaceSm}">
+                    <TextBlock Text="Startup"
+                               FontSize="{StaticResource HeadingSmFontSize}"
+                               FontWeight="{StaticResource HeadingSmFontWeight}"
+                               Foreground="{DynamicResource TextPrimaryBrush}" />
+                    <TextBlock Text="Launch AvaDM automatically when you log in? It starts minimized to the tray."
+                               FontSize="{StaticResource BodyMdFontSize}"
+                               Foreground="{DynamicResource TextSecondaryBrush}" />
+                    <StackPanel Orientation="Horizontal" Spacing="{StaticResource SpaceXs}">
+                        <Panel>
+                            <Button Classes="primary" Content="Start with System"
+                                    Command="{Binding SelectStartWithSystemEnabledCommand}"
+                                    IsVisible="{Binding IsStartWithSystemEnabledSelected}" />
+                            <Button Classes="secondary" Content="Start with System"
+                                    Command="{Binding SelectStartWithSystemEnabledCommand}"
+                                    IsVisible="{Binding !IsStartWithSystemEnabledSelected}" />
+                        </Panel>
+                        <Panel>
+                            <Button Classes="primary" Content="Don't Start with System"
+                                    Command="{Binding SelectStartWithSystemDisabledCommand}"
+                                    IsVisible="{Binding IsStartWithSystemDisabledSelected}" />
+                            <Button Classes="secondary" Content="Don't Start with System"
+                                    Command="{Binding SelectStartWithSystemDisabledCommand}"
+                                    IsVisible="{Binding !IsStartWithSystemDisabledSelected}" />
+                        </Panel>
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+
             <TextBlock Text="{Binding ErrorMessage}"
                        IsVisible="{Binding HasError}"
                        FontSize="{StaticResource BodyMdFontSize}"
