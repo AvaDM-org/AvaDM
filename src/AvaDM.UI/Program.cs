@@ -13,12 +13,12 @@ class Program
     // SynchronizationContext-reliant code before AppMain is called: things aren't initialized
     // yet and stuff might break.
     //
-    // AppLogging.Initialize() runs first since everything below (including Avalonia's own
-    // LogToDelegate sink) writes through it. The AppDomain/TaskScheduler handlers cover
-    // non-UI-thread crashes; Dispatcher.UIThread.UnhandledException (registered in
-    // App.OnFrameworkInitializationCompleted) covers the UI thread; the try/catch below is the
-    // last line of defense for anything that still reaches Main - see
-    // https://docs.avaloniaui.net/docs/app-development/setting-unhandled-exceptions.
+    // AppLogging.Initialize() runs first (ahead of even the single-instance check) since
+    // everything below it, including a losing second launch, writes through it. The
+    // AppDomain/TaskScheduler handlers cover non-UI-thread crashes; Dispatcher.UIThread.
+    // UnhandledException (registered in App.OnFrameworkInitializationCompleted) covers the UI
+    // thread; the try/catch below is the last line of defense for anything that still reaches
+    // Main - see https://docs.avaloniaui.net/docs/app-development/setting-unhandled-exceptions.
     [STAThread]
     public static void Main(string[] args)
     {
@@ -33,7 +33,19 @@ class Program
             return;
         }
 
+        // Logging is initialized before the single-instance check (rather than after, as the
+        // comment above once said) specifically so a losing second launch still leaves a trail -
+        // otherwise a launch that silently redirects to an already-running instance would leave
+        // no evidence in the log that it ever ran.
         AppLogging.Initialize();
+
+        var singleInstance = SingleInstanceService.TryAcquire();
+        if (singleInstance is null)
+        {
+            Log.CloseAndFlush();
+            return;
+        }
+
         AppLogging.InstallGlobalExceptionHandlers(CrashReporter.Report);
 
         try
@@ -47,6 +59,7 @@ class Program
         }
         finally
         {
+            singleInstance.Dispose();
             Log.CloseAndFlush();
         }
     }

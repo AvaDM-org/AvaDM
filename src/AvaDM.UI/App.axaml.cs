@@ -79,6 +79,18 @@ public partial class App : Application
             var trayIcon = TrayIcon.GetIcons(this)![0];
             _trayIconService = new TrayIconService(desktop, window, mainWindowViewModel, trayIcon);
 
+            // Instance is null here only if SingleInstanceService.TryAcquire() itself is
+            // somehow bypassed (e.g. a future test/design-time path that doesn't go through
+            // Program.Main) - Program.Main already exits before reaching this method otherwise.
+            // The service has been listening since before this method even started, so this call
+            // also replays any activation request that arrived during startup (see
+            // SingleInstanceService.SetActivationHandler).
+            SingleInstanceService.Instance?.SetActivationHandler(() => Dispatcher.UIThread.Post(() =>
+            {
+                _trayIconService.RestoreWindow();
+                mainWindowViewModel.DownloadListViewModel.ShowToast("AvaDM is already running.");
+            }));
+
             // Fire-and-forget: CheckForUpdatesAsync swallows its own failures (silent: true means
             // "don't surface an error/"you're up to date" message", not "don't check"), so there's
             // nothing here to await or observe. An available update still updates

@@ -171,7 +171,11 @@ public sealed partial class DownloadListViewModel : ViewModelBase, IDisposable
 
     private void OnAddDownloadCancelled() => ActiveAddDownload = null;
 
-    private void ShowToast(string message) => Toasts.Add(new ToastViewModel(message, RemoveToast));
+    /// <summary>Public so callers outside this view model - currently just
+    /// <see cref="App.OnFrameworkInitializationCompleted"/>, notifying that a second launch was
+    /// redirected here - can post a toast without duplicating <see cref="ToastViewModel"/>'s
+    /// wiring.</summary>
+    public void ShowToast(string message) => Toasts.Add(new ToastViewModel(message, RemoveToast));
 
     private void RemoveToast(ToastViewModel toast)
     {

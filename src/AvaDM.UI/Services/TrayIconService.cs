@@ -219,7 +219,9 @@ public sealed class TrayIconService
         }
     }
 
-    private void RestoreWindow()
+    /// <summary>Public so <see cref="SingleInstanceService"/> can bring the window to front when
+    /// a second launch signals this instance instead of starting its own.</summary>
+    public void RestoreWindow()
     {
         _window.Show();
         _window.WindowState = WindowState.Normal;
