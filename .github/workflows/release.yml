@@ -17,8 +17,21 @@ jobs:
     outputs:
       version: ${{ steps.version.outputs.version }}
     steps:
+      - uses: actions/checkout@v7
+
       - id: version
         run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      # Checked here, in the one cheap job that gates every build, so a tag pushed without its
+      # CHANGELOG.md entry fails in seconds rather than after three platforms have been built.
+      - name: Require a CHANGELOG entry for this version
+        run: |
+          set -euo pipefail
+          if ! grep -qE "^## \[${GITHUB_REF_NAME#v}\]" CHANGELOG.md; then
+            echo "::error file=CHANGELOG.md::No '## [${GITHUB_REF_NAME#v}]' section in CHANGELOG.md."
+            echo "Add the entry for ${GITHUB_REF_NAME}, then retag."
+            exit 1
+          fi
 
   build-windows:
     needs: version
@@ -186,6 +199,10 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v7
+        with:
+          # The release-notes step looks up the previous tag to build a compare link; the default
+          # shallow checkout fetches no tags at all.
+          fetch-depth: 0
 
       - uses: actions/download-artifact@v8
         with:
@@ -200,6 +217,33 @@ jobs:
           sha256sum AvaDM-* > SHA256SUMS.txt
           cd -
 
+      # Pulls this version's section out of CHANGELOG.md - everything between its own '## [x.y.z]'
+      # heading and the next '## ' heading - to use verbatim as the release notes. The version job
+      # has already verified the section exists.
+      - name: Build release notes from CHANGELOG.md
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          awk -v ver="$VERSION" '
+            $0 ~ "^## \\[" ver "\\]" { found = 1; next }
+            found && /^## / { exit }
+            found { print }
+          ' CHANGELOG.md > release-notes.md
+
+          # gh reads the compare link from the previous tag; add it ourselves so the notes are
+          # fully determined by this file rather than by --generate-notes, which would otherwise
+          # replace them.
+          previous=$(git tag --list 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname \
+            | grep -v "^${GITHUB_REF_NAME}$" | head -n1 || true)
+          if [ -n "$previous" ]; then
+            printf '\n**Full changelog**: https://github.com/%s/compare/%s...%s\n' \
+              "$GITHUB_REPOSITORY" "$previous" "$GITHUB_REF_NAME" >> release-notes.md
+          fi
+
+          echo "--- release notes ---"
+          cat release-notes.md
+
       - name: Create draft GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -207,4 +251,4 @@ jobs:
           gh release create "${{ github.ref_name }}" artifacts/* \
             --title "AvaDM ${{ github.ref_name }}" \
             --draft \
-            --generate-notes
+            --notes-file release-notes.md
