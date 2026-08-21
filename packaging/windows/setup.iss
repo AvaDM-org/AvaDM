@@ -69,9 +69,24 @@ Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: de
 
 [Run]
 Filename: "{app}\{#MyAppExeName}"; Description: "Launch {#MyAppName}"; Flags: nowait postinstall skipifsilent
+; The entry above carries `skipifsilent` (standard practice - an admin deploying this silently
+; doesn't want an app window appearing), which would leave a self-update with no running app: the
+; old AvaDM exits to release its files, and nothing ever starts the new one. UpdateService
+; (src/AvaDM.UI/Services/UpdateService.cs) therefore passes /AVADMRELAUNCH=1 to mark "this silent
+; run is an in-app update, relaunch when you're done". runasoriginaluser matters because a
+; per-machine update elevates: without it the relaunched AvaDM would inherit the installer's admin
+; token and write its settings/downloads database to the wrong user profile.
+Filename: "{app}\{#MyAppExeName}"; Flags: nowait runasoriginaluser; Check: ShouldRelaunchAfterSilentUpdate
 
 [UninstallRun]
 ; Runs while the installed exe still exists (Inno executes [UninstallRun] entries before deleting
 ; files), so this reliably clears the HKCU\...\Run entry AutoStartService may have written,
 ; regardless of whether autostart was ever turned on (SetEnabled(false) is a no-op if it wasn't).
 Filename: "{app}\{#MyAppExeName}"; Parameters: "--unregister-autostart"; Flags: runhidden waituntilterminated; RunOnceId: "UnregisterAutostart"
+
+; Must stay the last section in the file - Inno requires [Code] to come after every other section.
+[Code]
+function ShouldRelaunchAfterSilentUpdate: Boolean;
+begin
+  Result := WizardSilent and (ExpandConstant('{param:AVADMRELAUNCH|0}') = '1');
+end;

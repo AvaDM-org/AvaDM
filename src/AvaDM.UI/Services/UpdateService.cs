@@ -63,20 +63,31 @@ public sealed class UpdateService(HttpClient httpClient)
     private const string RepoName = "AvaDM";
     private const string ChecksumsFileName = "SHA256SUMS.txt";
 
+    /// <summary>How long the metadata call may hang before it's treated as a failed check. The
+    /// shared <c>HttpClient</c> is deliberately built with <c>Timeout.InfiniteTimeSpan</c> (large
+    /// downloads must not be cut off), so without this an unreachable GitHub would leave the check
+    /// pending forever - and with it the "Check for Updates" button disabled for the rest of the
+    /// session. Update *downloads* stay unbounded.</summary>
+    private static readonly TimeSpan CheckTimeout = TimeSpan.FromSeconds(30);
+
     public async Task<UpdateCheckResult> CheckForUpdateAsync(CancellationToken ct = default)
     {
         var currentVersion = GetCurrentVersion();
         var channel = UpdateChannelDetector.Detect();
+
+        using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        timeoutCts.CancelAfter(CheckTimeout);
+        var checkCt = timeoutCts.Token;
 
         using var request = new HttpRequestMessage(
             HttpMethod.Get, $"https://api.github.com/repos/{RepoOwner}/{RepoName}/releases/latest");
         request.Headers.UserAgent.Add(new ProductInfoHeaderValue("AvaDM", currentVersion.ToString()));
         request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/vnd.github+json"));
 
-        using var response = await httpClient.SendAsync(request, ct);
+        using var response = await httpClient.SendAsync(request, checkCt);
         response.EnsureSuccessStatusCode();
 
-        var release = await response.Content.ReadFromJsonAsync<GitHubRelease>(cancellationToken: ct)
+        var release = await response.Content.ReadFromJsonAsync<GitHubRelease>(cancellationToken: checkCt)
             ?? throw new InvalidOperationException("GitHub returned an empty release payload.");
 
         var latestVersion = ParseVersion(release.TagName);
@@ -138,9 +149,27 @@ public sealed class UpdateService(HttpClient httpClient)
         if (update.Asset is null)
             return new UpdateApplyResult(false, false, "No matching download was published for this build.");
 
-        var exePath = Environment.ProcessPath
-            ?? throw new InvalidOperationException("Couldn't determine the running executable's path.");
+        // For an AppImage, Environment.ProcessPath points inside the read-only FUSE mount
+        // (/tmp/.mount_.../usr/bin/...) that the AppImage runtime extracts itself into - not the
+        // actual .AppImage file on disk. The APPIMAGE env var (see UpdateChannelDetector) holds
+        // that real, writable path, which is what needs to be replaced.
+        var exePath = update.Channel == UpdateChannel.LinuxAppImage
+            ? Environment.GetEnvironmentVariable("APPIMAGE")
+                ?? throw new InvalidOperationException("Couldn't determine the running AppImage's path (APPIMAGE env var not set).")
+            : Environment.ProcessPath
+                ?? throw new InvalidOperationException("Couldn't determine the running executable's path.");
         var installDir = Path.GetDirectoryName(exePath)!;
+
+        // Every channel below except WindowsInstaller rewrites files in installDir as this
+        // (unelevated) process. Checking up front turns "the app exited and never came back" into
+        // an actionable message - e.g. a portable build unzipped into Program Files or /opt, or an
+        // AppImage sitting on a read-only mount.
+        if (update.Channel != UpdateChannel.WindowsInstaller && !IsDirectoryWritable(installDir))
+        {
+            return new UpdateApplyResult(false, false,
+                $"AvaDM can't update itself because it doesn't have write access to {installDir}. " +
+                "Move it somewhere writable, or download the new version manually.");
+        }
 
         // The AppImage case downloads straight into the install directory (right beside the file
         // it's about to replace) so the final swap is a same-filesystem atomic rename; the others
@@ -152,64 +181,135 @@ public sealed class UpdateService(HttpClient httpClient)
 
         Directory.CreateDirectory(Path.GetDirectoryName(downloadPath)!);
 
-        progress?.Report("Downloading update...");
-        await DownloadFileAsync(update.Asset.BrowserDownloadUrl, downloadPath, ct);
-
-        progress?.Report("Verifying download...");
-        await VerifyChecksumAsync(update, downloadPath, ct);
-
-        progress?.Report("Installing update...");
-        switch (update.Channel)
+        try
         {
-            case UpdateChannel.LinuxAppImage:
-                if (OperatingSystem.IsLinux())
-                    File.SetUnixFileMode(downloadPath, ExecutableFileMode);
-                // Same directory as exePath, so this is an atomic rename over a file the running
-                // process still has open - its old inode stays valid until this process exits, so
-                // it's safe to do while AvaDM is still executing.
-                File.Move(downloadPath, exePath, overwrite: true);
-                RelaunchAndSignalExit(exePath, progress);
-                return new UpdateApplyResult(true, true, null);
+            progress?.Report("Downloading update...");
+            await DownloadFileAsync(update.Asset.BrowserDownloadUrl, downloadPath, ct);
 
-            case UpdateChannel.LinuxPortable:
+            progress?.Report("Verifying download...");
+            await VerifyChecksumAsync(update, downloadPath, ct);
+
+            progress?.Report("Installing update...");
+            switch (update.Channel)
             {
-                var stagingDir = Path.Combine(installDir, $".avadm-update-{Guid.NewGuid():N}");
-                Directory.CreateDirectory(stagingDir);
-                try
+                case UpdateChannel.LinuxAppImage:
+                    if (OperatingSystem.IsLinux())
+                        File.SetUnixFileMode(downloadPath, ExecutableFileMode);
+                    // Same directory as exePath, so this is an atomic rename over a file the running
+                    // process still has open - its old inode stays valid until this process exits, so
+                    // it's safe to do while AvaDM is still executing.
+                    File.Move(downloadPath, exePath, overwrite: true);
+                    RelaunchAfterExitAndSignal(exePath, progress);
+                    return new UpdateApplyResult(true, true, null);
+
+                case UpdateChannel.LinuxPortable:
                 {
-                    await TarFile.ExtractToDirectoryAsync(downloadPath, stagingDir, overwriteFiles: true, ct);
-                    ReplaceDirectoryContents(stagingDir, installDir);
+                    var stagingDir = Path.Combine(installDir, $".avadm-update-{Guid.NewGuid():N}");
+                    Directory.CreateDirectory(stagingDir);
+                    try
+                    {
+                        // release.yml ships this as a *gzipped* tar; TarFile only reads a raw tar
+                        // stream and fails with EndOfStreamException on the gzip magic bytes, so
+                        // the decompression has to be explicit.
+                        await using (var compressed = File.OpenRead(downloadPath))
+                        await using (var tar = new GZipStream(compressed, CompressionMode.Decompress))
+                            await TarFile.ExtractToDirectoryAsync(tar, stagingDir, overwriteFiles: true, ct);
+
+                        ReplaceDirectoryContents(stagingDir, installDir);
+                    }
+                    finally
+                    {
+                        if (Directory.Exists(stagingDir))
+                            Directory.Delete(stagingDir, recursive: true);
+                    }
+                    if (OperatingSystem.IsLinux())
+                        File.SetUnixFileMode(exePath, ExecutableFileMode);
+                    TryDeleteDownloadDirectory(downloadPath);
+                    RelaunchAfterExitAndSignal(exePath, progress);
+                    return new UpdateApplyResult(true, true, null);
                 }
-                finally
+
+                case UpdateChannel.WindowsPortable:
                 {
-                    if (Directory.Exists(stagingDir))
-                        Directory.Delete(stagingDir, recursive: true);
+                    var stagingDir = Path.Combine(installDir, $".avadm-update-{Guid.NewGuid():N}");
+                    Directory.CreateDirectory(stagingDir);
+                    ZipFile.ExtractToDirectory(downloadPath, stagingDir, overwriteFiles: true);
+                    TryDeleteDownloadDirectory(downloadPath);
+                    // Hands stagingDir to a detached script that outlives this process; nothing here
+                    // may delete it on the way out.
+                    LaunchWindowsPortableSwapScript(stagingDir, installDir, exePath);
+                    return new UpdateApplyResult(true, true, null);
                 }
-                if (OperatingSystem.IsLinux())
-                    File.SetUnixFileMode(exePath, ExecutableFileMode);
-                RelaunchAndSignalExit(exePath, progress);
-                return new UpdateApplyResult(true, true, null);
-            }
 
-            case UpdateChannel.WindowsPortable:
-            {
-                var stagingDir = Path.Combine(installDir, $".avadm-update-{Guid.NewGuid():N}");
-                Directory.CreateDirectory(stagingDir);
-                ZipFile.ExtractToDirectory(downloadPath, stagingDir, overwriteFiles: true);
-                LaunchWindowsPortableSwapScript(stagingDir, installDir, exePath);
-                return new UpdateApplyResult(true, true, null);
-            }
-
-            case UpdateChannel.WindowsInstaller:
-                Process.Start(new ProcessStartInfo(downloadPath)
+                case UpdateChannel.WindowsInstaller:
                 {
-                    Arguments = "/VERYSILENT /SUPPRESSMSGBOX /NORESTART /CLOSEAPPLICATIONS /RESTARTAPPLICATIONS",
-                    UseShellExecute = true,
-                });
-                return new UpdateApplyResult(true, true, null);
+                    // PrivilegesRequired=lowest means Setup never elevates on its own, so a
+                    // per-machine install (Program Files) would fail on file copy. /ALLUSERS
+                    // requests admin install mode - and therefore a UAC prompt - to match how it
+                    // was originally installed. setup.iss allows this: its
+                    // PrivilegesRequiredOverridesAllowed=dialog implies commandline.
+                    var privilegeFlag = UpdateChannelDetector.IsWindowsPerMachineInstall()
+                        ? "/ALLUSERS"
+                        : "/CURRENTUSER";
 
-            default:
-                return new UpdateApplyResult(false, false, "Unsupported update channel.");
+                    // /AVADMRELAUNCH=1 is read by setup.iss's [Run] section: its normal launch entry
+                    // carries `skipifsilent` and so never fires on a silent update, which would
+                    // otherwise leave the user with no running app. Deliberately no
+                    // /RESTARTAPPLICATIONS - that would race the [Run] entry and start AvaDM twice.
+                    // Note /SUPPRESSMSGBOXES is plural; the singular form is silently ignored.
+                    Process.Start(new ProcessStartInfo(downloadPath)
+                    {
+                        Arguments = $"/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /CLOSEAPPLICATIONS {privilegeFlag} /AVADMRELAUNCH=1",
+                        UseShellExecute = true,
+                    });
+                    // downloadPath is deliberately left in temp: Setup is still reading it.
+                    return new UpdateApplyResult(true, true, null);
+                }
+
+                default:
+                    return new UpdateApplyResult(false, false, "Unsupported update channel.");
+            }
+        }
+        catch
+        {
+            // Don't leave a half-written .download beside the AppImage (or a stale temp dir) for a
+            // failure the user may well retry.
+            TryDeleteDownloadDirectory(downloadPath);
+            throw;
+        }
+    }
+
+    /// <summary>The AppImage staging file lives in the install directory itself, so this deletes
+    /// the file there but the whole generated directory for the temp-staged channels.</summary>
+    private static void TryDeleteDownloadDirectory(string downloadPath)
+    {
+        try
+        {
+            var directory = Path.GetDirectoryName(downloadPath)!;
+            if (Path.GetFileName(directory).StartsWith("avadm-update-", StringComparison.Ordinal))
+                Directory.Delete(directory, recursive: true);
+            else
+                File.Delete(downloadPath);
+        }
+        catch (Exception ex)
+        {
+            Log.Warning(ex, "Couldn't clean up update staging path {DownloadPath}", downloadPath);
+        }
+    }
+
+    private static bool IsDirectoryWritable(string directory)
+    {
+        try
+        {
+            var probe = Path.Combine(directory, $".avadm-write-probe-{Guid.NewGuid():N}");
+            File.WriteAllBytes(probe, []);
+            File.Delete(probe);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            Log.Warning(ex, "Install directory {Directory} isn't writable, can't self-update", directory);
+            return false;
         }
     }
 
@@ -259,10 +359,33 @@ public sealed class UpdateService(HttpClient httpClient)
         });
     }
 
-    private static void RelaunchAndSignalExit(string exePath, IProgress<string>? progress)
+    /// <summary>Starts the freshly-installed build, but only once this process has actually exited.
+    /// The wait is not optional: <see cref="SingleInstanceService"/> holds an exclusive lock for
+    /// this process's entire lifetime, so a replacement launched while we're still alive loses that
+    /// lock, treats itself as a duplicate launch, signals us to come to the front and exits - and
+    /// then we exit too, leaving nothing running at all. Mirrors what
+    /// <see cref="LaunchWindowsPortableSwapScript"/> already does with Wait-Process on Windows.
+    ///
+    /// The arguments are passed to <c>sh</c> positionally rather than interpolated into the script
+    /// text, so a path containing quotes or spaces can't break (or inject into) the command.</summary>
+    private static void RelaunchAfterExitAndSignal(string exePath, IProgress<string>? progress)
     {
         progress?.Report("Restarting AvaDM...");
-        Process.Start(new ProcessStartInfo(exePath) { UseShellExecute = true });
+
+        // Bounded at ~60s so a process that somehow never exits leaves a stray shell for a minute
+        // rather than forever; relaunching late is harmless either way (a second instance just
+        // signals the first to the front).
+        const string script = """
+            i=0
+            while kill -0 "$2" 2>/dev/null && [ "$i" -lt 300 ]; do sleep 0.2; i=$((i+1)); done
+            exec "$1"
+            """;
+
+        Process.Start(new ProcessStartInfo("/bin/sh")
+        {
+            ArgumentList = { "-c", script, "avadm-update", exePath, Environment.ProcessId.ToString() },
+            UseShellExecute = false,
+        });
     }
 
     /// <summary>macOS: downloads the .dmg and opens it (mounts it in Finder, same as a browser
@@ -310,7 +433,12 @@ public sealed class UpdateService(HttpClient httpClient)
     private async Task VerifyChecksumAsync(UpdateCheckResult update, string downloadedFilePath, CancellationToken ct)
     {
         if (update.ChecksumsAsset is null || update.Asset is null)
+        {
+            Log.Warning(
+                "No {ChecksumsFileName} published for {LatestVersion} - applying {Asset} unverified",
+                ChecksumsFileName, update.LatestVersion, update.Asset?.Name);
             return;
+        }
 
         var checksumsText = await httpClient.GetStringAsync(update.ChecksumsAsset.BrowserDownloadUrl, ct);
         var expectedLine = checksumsText
@@ -319,7 +447,12 @@ public sealed class UpdateService(HttpClient httpClient)
             .FirstOrDefault(l => l.EndsWith(update.Asset.Name, StringComparison.Ordinal));
 
         if (expectedLine is null)
+        {
+            Log.Warning(
+                "{ChecksumsFileName} has no line for {Asset} - applying it unverified",
+                ChecksumsFileName, update.Asset.Name);
             return;
+        }
 
         var expectedHash = expectedLine.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries)[0];
 

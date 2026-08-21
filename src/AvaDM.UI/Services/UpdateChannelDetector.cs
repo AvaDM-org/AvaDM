@@ -56,8 +56,42 @@ public static class UpdateChannelDetector
         return UpdateChannel.Unknown;
     }
 
+    private const string WindowsUninstallSubKey =
+        $@"Software\Microsoft\Windows\CurrentVersion\Uninstall\{WindowsAppId}_is1";
+
+    /// <summary>True when the Inno installer was run in administrative install mode (its default
+    /// {autopf} target being Program Files). Inno records a per-machine install under HKLM and a
+    /// per-user one under HKCU, so which hive holds the key is what distinguishes them.
+    /// <see cref="UpdateService"/> needs this to decide whether a silent update has to request
+    /// elevation (/ALLUSERS) or not (/CURRENTUSER).</summary>
+    public static bool IsWindowsPerMachineInstall()
+    {
+        if (!OperatingSystem.IsWindows())
+            return false;
+
+        try
+        {
+            using var key = Registry.LocalMachine.OpenSubKey(WindowsUninstallSubKey);
+            return key is not null;
+        }
+        catch (Exception ex)
+        {
+            Log.Warning(ex, "Couldn't read the per-machine install registry key");
+            return false;
+        }
+    }
+
+    /// <summary>Checks both hives: an administrative install writes only to HKLM, so looking at
+    /// HKCU alone would misreport a Program Files install as the portable zip - and send it down
+    /// an update path that overwrites files in place without ever elevating.</summary>
     [System.Runtime.Versioning.SupportedOSPlatform("windows")]
-    private static bool IsWindowsInstalled() =>
-        Registry.CurrentUser.OpenSubKey(
-            $@"Software\Microsoft\Windows\CurrentVersion\Uninstall\{WindowsAppId}_is1") is not null;
+    private static bool IsWindowsInstalled()
+    {
+        using var perUser = Registry.CurrentUser.OpenSubKey(WindowsUninstallSubKey);
+        if (perUser is not null)
+            return true;
+
+        using var perMachine = Registry.LocalMachine.OpenSubKey(WindowsUninstallSubKey);
+        return perMachine is not null;
+    }
 }
