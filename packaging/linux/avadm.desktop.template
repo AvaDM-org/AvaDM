@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=AvaDM
+Comment=Modern cross-platform download manager
+Exec=@EXEC@ %U
+Icon=avadm
+Terminal=false
+Categories=Network;FileTransfer;

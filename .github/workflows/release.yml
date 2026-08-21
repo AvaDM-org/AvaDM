@@ -1,0 +1,202 @@
+name: Release
+
+# Fires only on version tags (e.g. v1.2.3), per project convention - regular pushes/PRs get the
+# lighter build+test CI workflow instead. Push a tag to cut a release:
+#   git tag v1.2.3 && git push origin v1.2.3
+on:
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+"
+
+permissions:
+  contents: read
+
+jobs:
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - id: version
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+  build-windows:
+    needs: version
+    runs-on: windows-latest
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Publish self-contained
+        run: >
+          dotnet publish src/AvaDM.UI/AvaDM.UI.csproj -c Release -r win-x64
+          --self-contained true
+          -p:PublishSingleFile=true
+          -p:Version=${{ env.VERSION }}
+          -o publish/win-x64
+
+      - name: Zip portable build
+        shell: pwsh
+        run: Compress-Archive -Path publish/win-x64/* -DestinationPath "AvaDM-${{ env.VERSION }}-win-x64-portable.zip"
+
+      - name: Install Inno Setup
+        run: choco install innosetup -y --no-progress
+
+      - name: Build installer
+        shell: pwsh
+        run: |
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" packaging\windows\setup.iss `
+            "/DMyAppVersion=${{ env.VERSION }}" `
+            "/DSourceDir=$(Resolve-Path publish\win-x64)" `
+            "/DOutputDir=$(Resolve-Path .)"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: windows-artifacts
+          path: |
+            AvaDM-*-win-x64-portable.zip
+            AvaDM-*-win-x64-setup.exe
+          if-no-files-found: error
+
+  build-linux:
+    needs: version
+    runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Publish self-contained
+        run: >
+          dotnet publish src/AvaDM.UI/AvaDM.UI.csproj -c Release -r linux-x64
+          --self-contained true
+          -p:PublishSingleFile=true
+          -p:Version=${{ env.VERSION }}
+          -o publish/linux-x64
+
+      - name: Portable tar.gz
+        run: |
+          chmod +x publish/linux-x64/AvaDM.UI
+          tar -czf "AvaDM-${VERSION}-linux-x64.tar.gz" -C publish/linux-x64 .
+
+      - name: Build AppImage
+        run: |
+          set -euo pipefail
+          APPDIR=AppDir
+          mkdir -p "$APPDIR/usr/bin" "$APPDIR/usr/share/applications" "$APPDIR/usr/share/icons/hicolor/256x256/apps"
+          cp -r publish/linux-x64/* "$APPDIR/usr/bin/"
+          sed "s#@EXEC@#AvaDM.UI#" packaging/linux/avadm.desktop.template > "$APPDIR/usr/share/applications/avadm.desktop"
+          cp "$APPDIR/usr/share/applications/avadm.desktop" "$APPDIR/avadm.desktop"
+          cp src/AvaDM.UI/Assets/avadm-logo-256.png "$APPDIR/usr/share/icons/hicolor/256x256/apps/avadm.png"
+          cp src/AvaDM.UI/Assets/avadm-logo-256.png "$APPDIR/avadm.png"
+          ln -sf usr/bin/AvaDM.UI "$APPDIR/AppRun"
+          wget -q -O appimagetool https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage
+          chmod +x appimagetool
+          ./appimagetool --appimage-extract-and-run "$APPDIR" "AvaDM-${VERSION}-linux-x86_64.AppImage"
+
+      - name: Build .deb
+        run: |
+          set -euo pipefail
+          PKGROOT=debroot
+          mkdir -p "$PKGROOT/DEBIAN" "$PKGROOT/opt/avadm" "$PKGROOT/usr/bin" \
+            "$PKGROOT/usr/share/applications" "$PKGROOT/usr/share/icons/hicolor/256x256/apps"
+          cp -r publish/linux-x64/* "$PKGROOT/opt/avadm/"
+          chmod +x "$PKGROOT/opt/avadm/AvaDM.UI"
+          ln -sf /opt/avadm/AvaDM.UI "$PKGROOT/usr/bin/avadm"
+          sed "s#@EXEC@#avadm#" packaging/linux/avadm.desktop.template > "$PKGROOT/usr/share/applications/avadm.desktop"
+          cp src/AvaDM.UI/Assets/avadm-logo-256.png "$PKGROOT/usr/share/icons/hicolor/256x256/apps/avadm.png"
+          sed "s/@VERSION@/${VERSION}/" packaging/linux/debian/control.template > "$PKGROOT/DEBIAN/control"
+          install -m 755 packaging/linux/debian/postinst "$PKGROOT/DEBIAN/postinst"
+          install -m 755 packaging/linux/debian/postrm "$PKGROOT/DEBIAN/postrm"
+          dpkg-deb --build --root-owner-group "$PKGROOT" "AvaDM-${VERSION}-linux-amd64.deb"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: linux-artifacts
+          path: |
+            AvaDM-*-linux-x64.tar.gz
+            AvaDM-*.AppImage
+            AvaDM-*.deb
+          if-no-files-found: error
+
+  build-macos:
+    needs: version
+    runs-on: macos-latest
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+    strategy:
+      matrix:
+        rid: [osx-x64, osx-arm64]
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Publish self-contained
+        run: >
+          dotnet publish src/AvaDM.UI/AvaDM.UI.csproj -c Release -r ${{ matrix.rid }}
+          --self-contained true
+          -p:PublishSingleFile=true
+          -p:Version=${{ env.VERSION }}
+          -o publish/${{ matrix.rid }}
+
+      - name: Build .app bundle
+        run: |
+          set -euo pipefail
+          APP="AvaDM.app"
+          mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
+          cp -r "publish/${{ matrix.rid }}/." "$APP/Contents/MacOS/"
+          chmod +x "$APP/Contents/MacOS/AvaDM.UI"
+          cp src/AvaDM.UI/Assets/avadm-logo.icns "$APP/Contents/Resources/avadm.icns"
+          sed "s/@VERSION@/${VERSION}/" packaging/macos/Info.plist.template > "$APP/Contents/Info.plist"
+
+      - name: Create dmg
+        # Unsigned/non-notarized for now, per project decision - Gatekeeper will require the
+        # user to right-click > Open the first time. Revisit once/if an Apple Developer account
+        # is available for codesign + notarytool.
+        run: |
+          set -euo pipefail
+          mkdir dmg-root
+          cp -r AvaDM.app dmg-root/
+          ln -s /Applications dmg-root/Applications
+          hdiutil create -volname "AvaDM" -srcfolder dmg-root -ov -format UDZO \
+            "AvaDM-${VERSION}-${{ matrix.rid }}.dmg"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: macos-artifacts-${{ matrix.rid }}
+          path: AvaDM-*.dmg
+          if-no-files-found: error
+
+  publish-release:
+    needs: [version, build-windows, build-linux, build-macos]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/download-artifact@v8
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Create draft GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${{ github.ref_name }}" artifacts/* \
+            --title "AvaDM ${{ github.ref_name }}" \
+            --draft \
+            --generate-notes

@@ -1,0 +1,11 @@
+Package: avadm
+Version: @VERSION@
+Section: net
+Priority: optional
+Architecture: amd64
+Maintainer: AvaDM Contributors <noreply@avadm-org.example>
+Homepage: https://github.com/AvaDM-org/AvaDM
+Description: Cross-platform download manager
+ AvaDM is an open-source, multi-connection download manager built with
+ Avalonia and .NET - a modern alternative to XDM/IDM/FDM. Supports
+ segmented downloads, pause/resume, retry, and bandwidth throttling.

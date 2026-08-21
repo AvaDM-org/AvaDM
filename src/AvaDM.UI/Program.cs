@@ -1,7 +1,9 @@
 ﻿using Avalonia;
 using AvaDM.Core.Diagnostics;
+using AvaDM.UI.Services;
 using Serilog;
 using System;
+using System.Linq;
 
 namespace AvaDM.UI;
 
@@ -20,6 +22,17 @@ class Program
     [STAThread]
     public static void Main(string[] args)
     {
+        // The Windows installer's uninstaller invokes the installed exe with this flag (see
+        // packaging/windows/setup.iss's [UninstallRun]) so uninstalling also clears the
+        // HKCU Run entry AutoStartService wrote - otherwise a stale entry would point at a now-
+        // deleted exe. Handled before any Avalonia/logging init: this is a headless one-shot,
+        // not a real app launch.
+        if (args.Contains("--unregister-autostart"))
+        {
+            AutoStartService.SetEnabled(false);
+            return;
+        }
+
         AppLogging.Initialize();
         AppLogging.InstallGlobalExceptionHandlers(CrashReporter.Report);
 

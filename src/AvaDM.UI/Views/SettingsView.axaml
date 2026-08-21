@@ -265,6 +265,41 @@
                 </StackPanel>
             </Border>
 
+            <Border Background="{DynamicResource SurfaceBrush}"
+                    BorderBrush="{DynamicResource BorderBrush}"
+                    BorderThickness="1"
+                    CornerRadius="{StaticResource RadiusCard}"
+                    Padding="{StaticResource PanelPadding}"
+                    IsVisible="{Binding ShowDesktopShortcutSection}">
+                <StackPanel Spacing="{StaticResource SpaceSm}">
+                    <TextBlock Text="Desktop Shortcut"
+                               FontSize="{StaticResource HeadingSmFontSize}"
+                               FontWeight="{StaticResource HeadingSmFontWeight}"
+                               Foreground="{DynamicResource TextPrimaryBrush}" />
+                    <TextBlock Text="Add AvaDM to your applications menu."
+                               FontSize="{StaticResource BodyMdFontSize}"
+                               Foreground="{DynamicResource TextSecondaryBrush}" />
+                    <StackPanel Orientation="Horizontal" Spacing="{StaticResource SpaceXs}">
+                        <Panel>
+                            <Button Classes="primary" Content="Add to Applications Menu"
+                                    Command="{Binding CreateDesktopShortcutCommand}"
+                                    IsVisible="{Binding IsDesktopShortcutCreatedSelected}" />
+                            <Button Classes="secondary" Content="Add to Applications Menu"
+                                    Command="{Binding CreateDesktopShortcutCommand}"
+                                    IsVisible="{Binding !IsDesktopShortcutCreatedSelected}" />
+                        </Panel>
+                        <Panel>
+                            <Button Classes="primary" Content="Remove Shortcut"
+                                    Command="{Binding RemoveDesktopShortcutCommand}"
+                                    IsVisible="{Binding IsDesktopShortcutRemovedSelected}" />
+                            <Button Classes="secondary" Content="Remove Shortcut"
+                                    Command="{Binding RemoveDesktopShortcutCommand}"
+                                    IsVisible="{Binding !IsDesktopShortcutRemovedSelected}" />
+                        </Panel>
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+
             <TextBlock Text="{Binding ErrorMessage}"
                        IsVisible="{Binding HasError}"
                        FontSize="{StaticResource BodyMdFontSize}"

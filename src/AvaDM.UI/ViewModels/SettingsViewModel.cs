@@ -80,6 +80,13 @@ public sealed partial class SettingsViewModel : ViewModelBase
     [NotifyPropertyChangedFor(nameof(IsStartWithSystemDisabledSelected))]
     private bool _startWithSystem;
 
+    /// <summary>Whether AvaDM has an applications-menu entry, via <see cref="DesktopShortcutService"/>.
+    /// Only meaningful (and only shown in the view) on Linux - see that class for why.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsDesktopShortcutCreatedSelected))]
+    [NotifyPropertyChangedFor(nameof(IsDesktopShortcutRemovedSelected))]
+    private bool _hasDesktopShortcut;
+
     public SettingsViewModel(
         DownloadSettings settings,
         UiPreferencesRepository uiPreferences,
@@ -102,7 +109,10 @@ public sealed partial class SettingsViewModel : ViewModelBase
         _closeToTray = closeToTray;
         _doubleClickAction = doubleClickAction;
         _startWithSystem = AutoStartService.IsEnabled();
+        _hasDesktopShortcut = DesktopShortcutService.IsCreated();
     }
+
+    public bool ShowDesktopShortcutSection => OperatingSystem.IsLinux();
 
     public string ResolvedRepositoryPathHint => _settings.GetResolvedRepositoryPath();
 
@@ -123,6 +133,10 @@ public sealed partial class SettingsViewModel : ViewModelBase
     public bool IsStartWithSystemEnabledSelected => StartWithSystem;
 
     public bool IsStartWithSystemDisabledSelected => !StartWithSystem;
+
+    public bool IsDesktopShortcutCreatedSelected => HasDesktopShortcut;
+
+    public bool IsDesktopShortcutRemovedSelected => !HasDesktopShortcut;
 
     public bool IsDoubleClickOpenFileSelected => DoubleClickAction == DownloadDoubleClickAction.OpenFile;
 
@@ -173,6 +187,34 @@ public sealed partial class SettingsViewModel : ViewModelBase
         else
         {
             ErrorMessage = "Couldn't disable starting AvaDM at login.";
+        }
+    }
+
+    [RelayCommand]
+    private void CreateDesktopShortcut()
+    {
+        ErrorMessage = null;
+        if (DesktopShortcutService.SetCreated(true))
+        {
+            HasDesktopShortcut = true;
+        }
+        else
+        {
+            ErrorMessage = "Couldn't create the desktop shortcut.";
+        }
+    }
+
+    [RelayCommand]
+    private void RemoveDesktopShortcut()
+    {
+        ErrorMessage = null;
+        if (DesktopShortcutService.SetCreated(false))
+        {
+            HasDesktopShortcut = false;
+        }
+        else
+        {
+            ErrorMessage = "Couldn't remove the desktop shortcut.";
         }
     }
 

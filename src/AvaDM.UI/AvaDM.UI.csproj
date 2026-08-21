@@ -7,6 +7,9 @@
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault>
     <ApplicationIcon>Assets/avadm-logo.ico</ApplicationIcon>
+    <!-- Avoids a hard runtime dependency on the system's libicu (version-fragile across distros,
+         and AppImage doesn't get one via apt at all) for a UI with no localized text yet. -->
+    <InvariantGlobalization>true</InvariantGlobalization>
   </PropertyGroup>
 
   <ItemGroup>
@@ -23,6 +26,13 @@
 
   <ItemGroup>
     <AvaloniaResource Include="Assets/**" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- A loose copy beside the published executable, for DesktopShortcutService's Linux .desktop
+         Icon= entry - AvaloniaResource assets above are embedded in the assembly, not available
+         as a file on disk for an external tool (the desktop shell) to read. -->
+    <None Include="Assets/avadm-logo-256.png" CopyToOutputDirectory="PreserveNewest" Link="avadm-logo.png" />
   </ItemGroup>
 
   <ItemGroup>
