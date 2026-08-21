@@ -39,9 +39,9 @@ Instances of abusive, harassing, or unacceptable behavior can be reported by con
    dotnet test
    ```
 
-4. **Start developing** — pick a branch name and create a new branch:
+4. **Start developing** — branch off an up-to-date `master`, named `<type>/<issue-number>-<short-slug>` (`<type>` matches the commit prefix below, e.g. `fix` or `feat`):
    ```bash
-   git checkout -b fix/issue-123-description
+   git checkout -b fix/123-download-bar-jitter
    ```
 
 ## Reporting Bugs
@@ -102,24 +102,28 @@ Feature requests are welcome! Please open an Issue with:
    }
    ```
 
-3. **Commit messages** — Write clear, concise commits:
-   - Use imperative mood: "Add feature" not "Added feature"
-   - Keep the first line under 72 characters
-   - Reference issues: "Fixes #123" or "Relates to #456"
-   - Include the why, not just the what
+3. **Commit messages** — Follow [Conventional Commits](https://www.conventionalcommits.org/):
+   - Format: `type(scope): subject`, e.g. `fix(core): ...`, `feat(ui): ...`, `test(core): ...`, `docs: ...`
+   - Common types: `feat`, `fix`, `test`, `docs`, `refactor`, `chore`; scope is usually the touched
+     area (`core`, `ui`, `console`) and can be omitted for repo-wide changes like `docs:`
+   - Subject in imperative mood ("add" not "added"), first line under ~72 characters
+   - Body explains the why, not just the what — especially for a non-obvious root cause
 
    Example:
    ```
-   Fix concurrent chunk writes on high-speed networks
-   
-   Pre-allocate the working file upfront to avoid race
-   conditions when multiple chunks write at similar offsets.
-   Fixes #42.
+   fix(core): serialize progress-report snapshotting to stop bar jitter
+
+   Concurrent chunk tasks could each invoke ProgressChanged on their own
+   thread with no ordering guarantee, so a stale, smaller snapshot could
+   reach the UI after a larger one already had. Fixes #10.
    ```
 
-4. **Keep commits focused** — One logical change per commit; avoid mixing refactoring with bug fixes
+4. **Keep commits focused** — One logical step per commit rather than one giant commit; for
+   example, a fix and its regression test are typically two commits, not one. Avoid mixing
+   refactoring with bug fixes.
 
 5. **Open the PR**:
+   - Target `master`, from your `<type>/<issue-number>-<short-slug>` branch
    - Link the issue: "Fixes #123"
    - Describe the change and testing approach
    - If visual changes, include a screenshot or screen recording
@@ -260,7 +264,10 @@ In VS Code:
 
 > **Note:** This is for maintainers only. Contributors don't need to follow this.
 
-Releases are triggered by version tags:
+Releases are triggered by version tags. First, add a `## [X.Y.Z] - YYYY-MM-DD` section to
+[`CHANGELOG.md`](CHANGELOG.md) (with `### Added`/`### Fixed`/`### Changed` as applicable) and merge
+it to `master` — `release.yml` reads that section as the GitHub Release notes and **fails fast if
+the tag's version has no matching entry**. Then tag and push:
 
 ```bash
 git tag vX.Y.Z
