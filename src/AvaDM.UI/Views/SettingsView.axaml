@@ -89,6 +89,16 @@
                                  Text="{Binding PerAttemptTimeoutSecondsInput, Mode=TwoWay}"
                                  Width="{StaticResource SettingsNumericFieldWidth}" />
                     </Grid>
+
+                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="{StaticResource SpaceSm}">
+                        <TextBlock Grid.Column="0" Text="Auto-retry failed downloads"
+                                   FontSize="{StaticResource BodyMdFontSize}"
+                                   Foreground="{DynamicResource TextSecondaryBrush}"
+                                   VerticalAlignment="Center" />
+                        <NumericUpDown Grid.Column="1" Value="{Binding AutoRetryAttempts, Mode=TwoWay}"
+                                       Minimum="0" Maximum="100" Increment="1"
+                                       Width="{StaticResource SettingsNumericFieldWidth}" />
+                    </Grid>
                 </StackPanel>
             </Border>
 

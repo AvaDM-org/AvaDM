@@ -36,12 +36,15 @@ public sealed class DownloadManager
 {
     private readonly Downloader _downloader;
     private readonly DownloadRepository _repository;
+    private readonly DownloadSettings _settings;
     private readonly ConcurrentDictionary<Guid, DownloadHandle> _activeHandles = new();
+    private readonly ConcurrentDictionary<Guid, int> _autoRetryAttempts = new();
     private readonly SemaphoreSlim _initLock = new(1, 1);
     private bool _initialized;
 
     public DownloadManager(HttpClient client, DownloadSettings settings)
     {
+        _settings = settings;
         _downloader = new Downloader(client, settings);
         _repository = new DownloadRepository(settings.GetResolvedRepositoryPath());
     }
@@ -169,6 +172,7 @@ public sealed class DownloadManager
         }
 
         await _repository.DeleteAsync(id);
+        _autoRetryAttempts.TryRemove(id, out _);
 
         if (deleteFile)
         {
@@ -216,6 +220,8 @@ public sealed class DownloadManager
             }
         }
 
+        _autoRetryAttempts.TryRemove(id, out _);
+
         try
         {
             var workingPath = record.DestinationPath + ".avadm";
@@ -231,10 +237,19 @@ public sealed class DownloadManager
     }
 
     /// <summary>Convenience wrapper for resuming a download that isn't live in this process (e.g.
-    /// after an app restart): looks up its record and re-adds it with
-    /// <see cref="ConflictResolution.Resume"/>, which falls through to <see cref="Downloader"/>'s
-    /// existing <c>.avadm</c>-footer resume logic - no separate "rehydration" code path needed.</summary>
+    /// after an app restart, or after <see cref="DownloadState.Failed"/>): looks up its record and
+    /// re-adds it with <see cref="ConflictResolution.Resume"/>, which falls through to
+    /// <see cref="Downloader"/>'s existing <c>.avadm</c>-footer resume logic - no separate
+    /// "rehydration" code path needed. A manual call always resets the automatic-retry counter
+    /// (see <see cref="TryAutoRetryAsync"/>), so a user who resumes by hand never runs out of
+    /// retries even if the automatic budget was already exhausted.</summary>
     public async Task<AddDownloadResult> ResumeDownloadAsync(Guid id)
+    {
+        _autoRetryAttempts.TryRemove(id, out _);
+        return await ResumeDownloadCoreAsync(id);
+    }
+
+    private async Task<AddDownloadResult> ResumeDownloadCoreAsync(Guid id)
     {
         await EnsureInitializedAsync();
 
@@ -270,8 +285,16 @@ public sealed class DownloadManager
 
         // Runs regardless of throttling and regardless of success/failure/cancellation, so the
         // terminal state is always recorded even if the last throttled write is stale.
-        handle.Completion.ContinueWith(_ =>
+        handle.Completion.ContinueWith(t =>
         {
+            // Reading Exception is what marks a faulted antecedent "observed" - without it, the
+            // fault sits unobserved until the GC finalizes the Task, and the runtime rethrows it
+            // on the finalizer thread, which the global TaskScheduler.UnobservedTaskException
+            // handler then logs as an alarming "Unobserved task exception" even though the
+            // failure is already handled cleanly below via handle.State.
+            if (t.Exception is not null)
+                handle.Log($"Download failed: {t.Exception.GetBaseException().Message}");
+
             // FinalizeDownloadAsync catches and logs its own exceptions, so discarding the task
             // here (rather than awaiting it) is intentional, not an oversight.
             _ = FinalizeDownloadAsync(id, handle);
@@ -292,6 +315,33 @@ public sealed class DownloadManager
         {
             _activeHandles.TryRemove(id, out _);
         }
+
+        if (handle.State == DownloadState.Failed)
+            await TryAutoRetryAsync(id, handle);
+    }
+
+    /// <summary>Automatically resumes a download that ended in <see cref="DownloadState.Failed"/>,
+    /// up to <see cref="DownloadSettings.DefaultAutoRetryAttempts"/> consecutive automatic attempts
+    /// for this download id - each one continues from the <c>.avadm</c> footer, so no progress is
+    /// lost between attempts. Never counts against, or is reset by, a manual
+    /// <see cref="ResumeDownloadAsync"/> call except to clear the counter (see there); an explicit
+    /// user cancel or removal also clears it, so a re-added download always starts with a full
+    /// budget.</summary>
+    private async Task TryAutoRetryAsync(Guid id, DownloadHandle handle)
+    {
+        var limit = _settings.DefaultAutoRetryAttempts;
+        if (limit <= 0)
+            return;
+
+        var attempt = _autoRetryAttempts.AddOrUpdate(id, 1, (_, count) => count + 1);
+        if (attempt > limit)
+            return;
+
+        handle.Log($"Retrying automatically (attempt {attempt} of {limit})...");
+
+        var result = await ResumeDownloadCoreAsync(id);
+        if (!result.Success)
+            handle.Log($"Automatic retry could not be started: {result.Error}");
     }
 
     private async Task EnsureInitializedAsync()

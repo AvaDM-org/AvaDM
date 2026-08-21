@@ -150,7 +150,73 @@ public sealed class DownloadManagerTests : IDisposable
         Assert.NotNull(await repository.GetByIdAsync(id));
     }
 
+    [Fact]
+    public async Task FailedDownload_AutoRetries_UpToConfiguredLimitThenStops()
+    {
+        var handler = new AlwaysFailingHandler();
+        using var client = new HttpClient(handler) { Timeout = Timeout.InfiniteTimeSpan };
+        var manager = new DownloadManager(client, new DownloadSettings
+        {
+            RepositoryPath = DatabasePath,
+            DefaultDownloadDirectory = _tempDirectory,
+            DefaultMaxRetryAttempts = 1,
+            DefaultAutoRetryAttempts = 3,
+        });
 
+        var destination = Path.Combine(_tempDirectory, "always-fails.bin");
+        var added = await manager.AddDownloadAsync(new Uri("http://127.0.0.1/always-fails.bin"), destination);
+        Assert.True(added.Success);
+        var id = added.Id!.Value;
+
+        // Each attempt fails on the HEAD request with no delay, so the initial attempt plus all
+        // automatic retries settle almost immediately; poll rather than sleep a fixed amount.
+        var deadline = DateTime.UtcNow.AddSeconds(5);
+        while (handler.RequestCount < 4 && DateTime.UtcNow < deadline)
+            await Task.Delay(25);
+
+        // Give a wrongly-unbounded retry loop a chance to prove itself before asserting it stopped.
+        await Task.Delay(200);
+
+        Assert.Equal(4, handler.RequestCount); // 1 initial attempt + 3 automatic retries.
+        var record = await manager.GetDownloadAsync(id);
+        Assert.Equal(DownloadState.Failed, record!.State);
+    }
+
+    [Fact]
+    public async Task ResumeDownloadAsync_ManualCall_ResetsAutoRetryCounter()
+    {
+        var handler = new AlwaysFailingHandler();
+        using var client = new HttpClient(handler) { Timeout = Timeout.InfiniteTimeSpan };
+        var manager = new DownloadManager(client, new DownloadSettings
+        {
+            RepositoryPath = DatabasePath,
+            DefaultDownloadDirectory = _tempDirectory,
+            DefaultMaxRetryAttempts = 1,
+            DefaultAutoRetryAttempts = 1,
+        });
+
+        var destination = Path.Combine(_tempDirectory, "always-fails-2.bin");
+        var added = await manager.AddDownloadAsync(new Uri("http://127.0.0.1/always-fails-2.bin"), destination);
+        Assert.True(added.Success);
+        var id = added.Id!.Value;
+
+        var deadline = DateTime.UtcNow.AddSeconds(5);
+        while (handler.RequestCount < 2 && DateTime.UtcNow < deadline) // 1 initial + 1 auto-retry.
+            await Task.Delay(25);
+        await Task.Delay(200);
+        Assert.Equal(2, handler.RequestCount);
+
+        // Auto-retry budget (1) is now exhausted; a manual resume must still work and restart it.
+        var resumed = await manager.ResumeDownloadAsync(id);
+        Assert.True(resumed.Success);
+
+        deadline = DateTime.UtcNow.AddSeconds(5);
+        while (handler.RequestCount < 4 && DateTime.UtcNow < deadline) // +1 manual + 1 more auto-retry.
+            await Task.Delay(25);
+        await Task.Delay(200);
+
+        Assert.Equal(4, handler.RequestCount);
+    }
 
     public void Dispose()
     {
@@ -194,6 +260,21 @@ public sealed class DownloadManagerTests : IDisposable
         for (var i = 0; i < payload.Length; i++)
             payload[i] = (byte)(i % 251);
         return payload;
+    }
+
+    /// <summary>Fails every request immediately with no network I/O, so a download attempt faults
+    /// as fast as possible - lets auto-retry tests assert exact attempt counts without relying on
+    /// timing-sensitive network behavior.</summary>
+    private sealed class AlwaysFailingHandler : HttpMessageHandler
+    {
+        private int _requestCount;
+        public int RequestCount => _requestCount;
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            Interlocked.Increment(ref _requestCount);
+            throw new HttpRequestException("Simulated connection failure.");
+        }
     }
 
     private sealed class LocalHttpServer : IAsyncDisposable

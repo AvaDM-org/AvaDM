@@ -44,6 +44,9 @@ public sealed partial class SettingsViewModel : ViewModelBase
     private string _perAttemptTimeoutSecondsInput;
 
     [ObservableProperty]
+    private int _autoRetryAttempts;
+
+    [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(HasError))]
     private string? _errorMessage;
 
@@ -143,6 +146,7 @@ public sealed partial class SettingsViewModel : ViewModelBase
         _maxRetryAttempts = settings.DefaultMaxRetryAttempts;
         _retryBaseDelaySecondsInput = settings.DefaultRetryBaseDelay.TotalSeconds.ToString("0.##");
         _perAttemptTimeoutSecondsInput = settings.DefaultPerAttemptTimeout.TotalSeconds.ToString("0.##");
+        _autoRetryAttempts = settings.DefaultAutoRetryAttempts;
         _isDarkTheme = Application.Current!.RequestedThemeVariant == ThemeVariant.Dark;
         _closeToTray = closeToTray;
         _doubleClickAction = doubleClickAction;
@@ -434,6 +438,7 @@ public sealed partial class SettingsViewModel : ViewModelBase
         _settings.DefaultMaxRetryAttempts = MaxRetryAttempts;
         _settings.DefaultRetryBaseDelay = TimeSpan.FromSeconds(retryBaseDelaySeconds);
         _settings.DefaultPerAttemptTimeout = TimeSpan.FromSeconds(perAttemptTimeoutSeconds);
+        _settings.DefaultAutoRetryAttempts = AutoRetryAttempts;
         StatusMessage = "Settings saved.";
     }
 }

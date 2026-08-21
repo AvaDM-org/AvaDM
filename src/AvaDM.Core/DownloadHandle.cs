@@ -176,6 +176,13 @@ public sealed class DownloadHandle
         LogMessage?.Invoke(this, message);
     }
 
+    /// <summary>Same as <see cref="Log"/> but never raised as a user-facing <see cref="LogMessage"/>
+    /// event - for high-frequency detail (e.g. per-attempt Polly retry warnings) that's worth
+    /// keeping in the log file for diagnosis but isn't actionable enough to surface as a toast,
+    /// and would otherwise spam the UI with one notification per retried request.</summary>
+    internal void LogDiagnostic(string message) =>
+        Serilog.Log.Information("[{Destination}] {Message}", DestinationPath, message);
+
     /// <summary>Establishes the chunk layout (index, byte range, initial Pending status) before
     /// any chunk task starts writing. Called once per download - by <see cref="Downloader"/>
     /// with one entry per concurrent Range chunk, or with a single whole-file entry when the
