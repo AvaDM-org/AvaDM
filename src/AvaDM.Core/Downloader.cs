@@ -99,7 +99,7 @@ public class Downloader
             _settings.DefaultRetryBaseDelay,
             _settings.DefaultPerAttemptTimeout,
             onRetry: (attempt, delay, ex) =>
-                handle.Log($"Request failed (attempt {attempt}), retrying in {delay.TotalSeconds:0.0}s: {ex?.Message}"));
+                handle.LogDiagnostic($"Request failed (attempt {attempt}), retrying in {delay.TotalSeconds:0.0}s: {ex?.Message}"));
 
         var msg = new HttpRequestMessage(HttpMethod.Head, uri);
         var headResponse = await _client.SendAsync(msg, cancellationToken);
