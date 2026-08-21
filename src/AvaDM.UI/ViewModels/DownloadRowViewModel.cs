@@ -231,10 +231,24 @@ public sealed partial class DownloadRowViewModel : ViewModelBase
         _handle = handle;
         HasActiveHandle = true;
         State = handle.State;
-        BytesDownloaded = handle.BytesDownloaded;
-        TotalBytes = handle.TotalBytes;
         SpeedLimitBytesPerSecond = handle.SpeedLimitBytesPerSecond;
-        SyncChunksFrom(handle.Chunks);
+
+        // A freshly started handle is "hot" (see DownloadHandle.Start) - it starts running in the
+        // background and is returned here before its own HEAD request/.avadm-footer read have
+        // populated TotalBytes/Chunks, which can easily still be behind whatever this call is
+        // racing against (e.g. AddDownloadAsync's own SQLite write). Applying that not-yet-seeded
+        // zero/empty state here would wipe out whatever this row was already correctly showing
+        // (the last persisted record, or a previous handle's progress) for the brief window until
+        // the handle's own first ProgressChanged/ChunksChanged arrives with the real values - the
+        // resume-time "jump to empty and back" from #10. Leaving the row's current display alone
+        // until there's real data to show avoids that; a genuinely fresh download has nothing
+        // worth preserving here anyway; since the row was just created at 0, this is a no-op.
+        if (handle.TotalBytes > 0)
+        {
+            BytesDownloaded = handle.BytesDownloaded;
+            TotalBytes = handle.TotalBytes;
+            SyncChunksFrom(handle.Chunks);
+        }
 
         handle.ProgressChanged += OnProgressChanged;
         handle.ChunksChanged += OnChunksChanged;
