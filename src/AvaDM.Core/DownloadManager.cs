@@ -102,14 +102,37 @@ public sealed class DownloadManager
             }
         }
 
+        // Resume/Overwrite restart the *same* (Uri, DestinationPath) row that CheckConflictAsync
+        // already found - e.g. paused, app closed, reopened, resumed. If a handle from an earlier
+        // run of that same row is still active here (most notably: the UI never learns about the
+        // replacement handle TryAutoRetryAsync starts after a failure, so a user who sees a
+        // seemingly-stuck row and clicks Resume could otherwise race a second handle against it),
+        // it must be fully stopped before a new one opens the same .avadm file - otherwise two
+        // handles end up writing/checkpointing/finalizing the same file concurrently.
+        if (conflict.HasConflict && resolution is ConflictResolution.Resume or ConflictResolution.Overwrite)
+        {
+            var staleHandle = GetActiveHandle(conflict.ExistingRecord!.Id);
+            if (staleHandle is not null)
+            {
+                staleHandle.Cancel();
+                try
+                {
+                    await staleHandle.Completion;
+                }
+                catch (OperationCanceledException)
+                {
+                    // Expected: Cancel() faults Completion with this.
+                }
+            }
+        }
+
         var handle = _downloader.StartDownload(uri, resolvedPath, options);
 
-        // Resume/Overwrite restart the *same* (Uri, DestinationPath) row that CheckConflictAsync
-        // already found - e.g. paused, app closed, reopened, resumed. That row is still in the
-        // table, so this must update it in place (same Id) rather than INSERT a second row, which
-        // would trip the UNIQUE(Uri, DestinationPath) constraint and, even if it didn't, would
-        // hand back a new Id that orphans a UI row already keyed on the old one. RenameDestination
-        // targets a path already confirmed conflict-free above, so it always gets a fresh row.
+        // This must update the existing row in place (same Id) rather than INSERT a second row,
+        // which would trip the UNIQUE(Uri, DestinationPath) constraint and, even if it didn't,
+        // would hand back a new Id that orphans a UI row already keyed on the old one.
+        // RenameDestination targets a path already confirmed conflict-free above, so it always
+        // gets a fresh row.
         Guid id;
         if (conflict.HasConflict && resolution is ConflictResolution.Resume or ConflictResolution.Overwrite)
         {
@@ -313,7 +336,11 @@ public sealed class DownloadManager
         }
         finally
         {
-            _activeHandles.TryRemove(id, out _);
+            // Conditional remove: if AddDownloadAsync has already raced in a replacement handle
+            // for this id (see its stale-handle guard) by the time this finally runs, a plain
+            // TryRemove(id) would delete that newer entry out from under it rather than this
+            // (now-stale) one.
+            ((ICollection<KeyValuePair<Guid, DownloadHandle>>)_activeHandles).Remove(new(id, handle));
         }
 
         if (handle.State == DownloadState.Failed)

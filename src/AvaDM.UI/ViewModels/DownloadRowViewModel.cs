@@ -253,6 +253,7 @@ public sealed partial class DownloadRowViewModel : ViewModelBase
         _handle.ChunksChanged -= OnChunksChanged;
         _handle.LogMessage -= OnLogMessage;
         _handle = null;
+        HasActiveHandle = false;
     }
 
     /// <summary>Refreshes the persisted-only fields from a fresh repository snapshot. Skipped
@@ -268,7 +269,8 @@ public sealed partial class DownloadRowViewModel : ViewModelBase
         TotalBytes = record.TotalBytes;
     }
 
-    private void OnProgressChanged(object? sender, DownloadProgress progress) =>
+    private void OnProgressChanged(object? sender, DownloadProgress progress)
+    {
         Dispatcher.UIThread.Post(() =>
         {
             State = progress.State;
@@ -278,7 +280,18 @@ public sealed partial class DownloadRowViewModel : ViewModelBase
 
             if (progress.State == DownloadState.Failed)
                 LastError ??= "Download failed - see log for details.";
+
+            // This handle is done - most importantly on Failed, where DownloadManager's
+            // auto-retry may already be starting a *replacement* handle for this same download
+            // internally, with no direct call back into the UI. Detaching here (rather than only
+            // on an explicit user action) clears HasActiveHandle so the next reconciliation tick
+            // notices this row has no live handle and either picks up that replacement via
+            // GetActiveHandle, or - if there isn't one - falls back to the persisted record, so
+            // the row can't stay frozen on this now-dead handle's last state indefinitely.
+            if (progress.State is DownloadState.Completed or DownloadState.Failed or DownloadState.Cancelled)
+                Detach();
         });
+    }
 
     private void OnChunksChanged(object? sender, IReadOnlyList<ChunkProgress> chunks) =>
         Dispatcher.UIThread.Post(() => SyncChunksFrom(chunks));
