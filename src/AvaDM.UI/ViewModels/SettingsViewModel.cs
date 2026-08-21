@@ -153,6 +153,12 @@ public sealed partial class SettingsViewModel : ViewModelBase
 
     public bool ShowDesktopShortcutSection => OperatingSystem.IsLinux();
 
+    /// <summary>The version of the build that's actually running - shown in Settings so the user
+    /// can confirm which version they're on, particularly after a self-update (nothing else about
+    /// the install changes visibly, and an AppImage/portable file keeps whatever name it was
+    /// downloaded under).</summary>
+    public string CurrentVersion => UpdateService.CurrentVersionDisplay;
+
     public bool IsUpdateAvailable => LatestUpdateCheck?.IsAvailable == true;
 
     public string? AvailableUpdateVersion => LatestUpdateCheck?.LatestVersion;

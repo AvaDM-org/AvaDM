@@ -11,6 +11,16 @@ fail fast if its version has no section here**. Add the entry before pushing the
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-08-21
+
+Shows which version you are running.
+
+### Added
+
+- **Settings > Updates now shows the running build's version**, so it's clear which version you're
+  on after a self-update (nothing else about the install changes visibly, and an AppImage or
+  portable build keeps whatever filename it was originally downloaded under).
+
 ## [1.1.2] - 2026-08-21
 
 Fixes login autostart and the Linux applications-menu shortcut for AppImage builds.
@@ -101,7 +111,8 @@ First release.
 - Packaging for six formats: Windows installer and portable zip, Linux tar.gz, AppImage and `.deb`,
   and macOS `.dmg` (x64 and arm64).
 
-[Unreleased]: https://github.com/AvaDM-org/AvaDM/compare/v1.1.2...HEAD
+[Unreleased]: https://github.com/AvaDM-org/AvaDM/compare/v1.2.0...HEAD
+[1.2.0]: https://github.com/AvaDM-org/AvaDM/compare/v1.1.2...v1.2.0
 [1.1.2]: https://github.com/AvaDM-org/AvaDM/compare/v1.1.1...v1.1.2
 [1.1.1]: https://github.com/AvaDM-org/AvaDM/compare/v1.1.0...v1.1.1
 [1.1.0]: https://github.com/AvaDM-org/AvaDM/compare/v1.0.0...v1.1.0

@@ -482,6 +482,12 @@ public sealed class UpdateService(HttpClient httpClient)
         return suffix is null ? null : assets.FirstOrDefault(a => a.Name.EndsWith(suffix, StringComparison.Ordinal));
     }
 
+    /// <summary>The running build's version, in the same normalized "X.Y.Z" form used for the
+    /// comparison against a release tag - so what Settings shows the user is exactly what an
+    /// update check compares. release.yml stamps this via <c>-p:Version=</c>; a local build with
+    /// no version stamped reports the SDK's 1.0.0 default.</summary>
+    public static string CurrentVersionDisplay => Normalize(GetCurrentVersion()).ToString();
+
     private static Version GetCurrentVersion() =>
         Assembly.GetExecutingAssembly().GetName().Version ?? new Version(0, 0, 0, 0);
 

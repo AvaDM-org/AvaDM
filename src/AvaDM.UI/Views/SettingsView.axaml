@@ -311,7 +311,8 @@
                         </Panel>
                     </StackPanel>
                     <Grid ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="{StaticResource SpaceSm}">
-                        <TextBlock Grid.Column="0" Text="Version"
+                        <TextBlock Grid.Column="0"
+                                   Text="{Binding CurrentVersion, StringFormat='Version {0}'}"
                                    FontSize="{StaticResource BodyMdFontSize}"
                                    Foreground="{DynamicResource TextSecondaryBrush}"
                                    VerticalAlignment="Center" />
