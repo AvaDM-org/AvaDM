@@ -9,10 +9,24 @@
              x:DataType="vm:SettingsViewModel">
     <ScrollViewer>
         <StackPanel Margin="{StaticResource PanelPadding}" Spacing="{StaticResource SpaceMd}">
-            <TextBlock Text="Settings"
-                       FontSize="{StaticResource HeadingLgFontSize}"
-                       FontWeight="{StaticResource HeadingLgFontWeight}"
-                       Foreground="{DynamicResource TextPrimaryBrush}" />
+            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="{StaticResource SpaceMd}">
+                <TextBlock Grid.Column="0"
+                           Text="Settings"
+                           FontSize="{StaticResource HeadingLgFontSize}"
+                           FontWeight="{StaticResource HeadingLgFontWeight}"
+                           Foreground="{DynamicResource TextPrimaryBrush}"
+                           VerticalAlignment="Center" />
+                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="{StaticResource SpaceSm}" VerticalAlignment="Center">
+                    <HyperlinkButton NavigateUri="https://github.com/AvaDM-org/AvaDM"
+                                     ToolTip.Tip="Visit GitHub repository">
+                        <Border Background="White"
+                                CornerRadius="3"
+                                Padding="1">
+                            <Image Source="avares://AvaDM.UI/Assets/github-logo.png" Width="25" Height="25" />
+                        </Border>
+                    </HyperlinkButton>
+                </StackPanel>
+            </Grid>
 
             <Border Background="{DynamicResource SurfaceBrush}"
                     BorderBrush="{DynamicResource BorderBrush}"
