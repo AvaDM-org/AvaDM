@@ -112,6 +112,45 @@ public sealed class DownloadManagerTests : IDisposable
         Assert.Null(await manager.GetDownloadAsync(id));
     }
 
+    /// <summary>Guards against two handles ending up simultaneously active for the same download
+    /// id - which could otherwise happen when, say, DownloadManager's internal auto-retry has
+    /// already replaced a failed handle in the background (the UI never learns about that
+    /// replacement directly) and a user, seeing a seemingly-stuck row, clicks Resume themselves.
+    /// Without the stale-handle guard, both handles would hold their own open file handle on the
+    /// same .avadm file and race each other to write/checkpoint/finalize it.</summary>
+    [Fact]
+    public async Task AddDownloadAsync_ResumeWhileHandleStillActive_CancelsStaleHandleBeforeStartingNew()
+    {
+        var payload = CreatePayload(512 * 1024);
+        await using var server = await LocalHttpServer.StartAsync(payload, holdBody: true);
+        var destination = Path.Combine(_tempDirectory, "still-active.bin");
+        using var client = CreateHttpClient();
+        var manager = CreateManager(client);
+
+        var first = await manager.AddDownloadAsync(server.Uri, destination);
+        Assert.True(first.Success);
+        var id = first.Id!.Value;
+        var staleHandle = first.Handle!;
+
+        // Make sure the first download is genuinely in flight (its GET held open by the server)
+        // before racing a second AddDownloadAsync against it.
+        await server.GetHeadersSent;
+
+        var second = await manager.AddDownloadAsync(server.Uri, destination, null, new ConflictResolution.Resume());
+
+        Assert.True(second.Success);
+        Assert.Equal(id, second.Id);
+        Assert.NotSame(staleHandle, second.Handle);
+
+        Assert.True(staleHandle.Completion.IsCompleted);
+        var staleException = await Record.ExceptionAsync(async () => await staleHandle.Completion);
+        Assert.IsAssignableFrom<OperationCanceledException>(staleException);
+
+        // Must point at the new handle - not left null, and not clobbered back by the stale
+        // handle's own finally-block cleanup running after the new one had already registered.
+        Assert.Same(second.Handle, manager.GetActiveHandle(id));
+    }
+
     [Fact]
     public async Task ResumeDownloadAsync_UnknownId_ReturnsNotFoundError()
     {

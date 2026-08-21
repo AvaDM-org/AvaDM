@@ -87,6 +87,13 @@ The console app uses Terminal.Gui 2.x rather than the old hand-rolled cursor-pos
 - Code signing: Windows installer/exe signing (needs a code-signing cert) and macOS notarization (needs a paid Apple Developer account) — both currently ship unsigned.
 - Automated end-to-end coverage for network failures, disk errors, malformed resume data, and application restart scenarios — `test/AvaDM.Core.Tests` currently covers `DownloadManager` and `SpeedTracker` at a narrower scope.
 
+## Working an issue in AvaDM-org/AvaDM
+
+1. Branch off up-to-date `master` as `<type>/<issue-number>-<short-slug>` (e.g. `fix/10-download-bar-jitter`), `<type>` matching the commit prefix below.
+2. Commit with Conventional Commits (`fix(core): ...`, `feat(ui): ...`, `test(core): ...`), one commit per logical step rather than a single giant commit.
+3. Open a PR against `master` with `gh pr create`, referencing the issue (e.g. "Fixes #10").
+4. The user merges via the GitHub UI, not this session — after they confirm a merge, fast-forward local `master` (`git fetch && git checkout master && git merge --ff-only origin/master`) rather than assuming it's already current.
+
 ## Notes
 
 - Target platforms: Linux (Fedora) primary, Windows primary, macOS secondary via Avalonia.

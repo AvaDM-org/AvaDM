@@ -134,7 +134,13 @@
                         </ItemsControl.ItemsPanel>
                         <ItemsControl.ItemTemplate>
                             <DataTemplate x:DataType="vm:ChunkRowViewModel">
-                                <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="{StaticResource SpaceSm}">
+                                <!-- The speed column is a fixed width, not Auto: SpeedText's
+                                     rendered length varies as the number/unit change (e.g.
+                                     "980 KB/s" vs "1.2 MB/s" vs "-"), and an Auto column here
+                                     would resize on every such change, stealing width from the
+                                     adjacent "*" ProgressBar column - visually indistinguishable
+                                     from the bar's own value moving, even though it never did (#10). -->
+                                <Grid ColumnDefinitions="Auto,*,76" ColumnSpacing="{StaticResource SpaceSm}">
                                     <TextBlock Grid.Column="0" Text="{Binding ChunkNumberText}"
                                                FontFamily="{StaticResource MonoFontFamily}"
                                                FontSize="{StaticResource NumericMdFontSize}"
@@ -149,6 +155,7 @@
                                                FontSize="{StaticResource NumericMdFontSize}"
                                                FontWeight="{StaticResource NumericMdFontWeight}"
                                                Foreground="{DynamicResource TextSecondaryBrush}"
+                                               TextAlignment="Right"
                                                VerticalAlignment="Center" />
                                 </Grid>
                             </DataTemplate>

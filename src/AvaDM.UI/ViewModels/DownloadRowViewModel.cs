@@ -231,10 +231,24 @@ public sealed partial class DownloadRowViewModel : ViewModelBase
         _handle = handle;
         HasActiveHandle = true;
         State = handle.State;
-        BytesDownloaded = handle.BytesDownloaded;
-        TotalBytes = handle.TotalBytes;
         SpeedLimitBytesPerSecond = handle.SpeedLimitBytesPerSecond;
-        SyncChunksFrom(handle.Chunks);
+
+        // A freshly started handle is "hot" (see DownloadHandle.Start) - it starts running in the
+        // background and is returned here before its own HEAD request/.avadm-footer read have
+        // populated TotalBytes/Chunks, which can easily still be behind whatever this call is
+        // racing against (e.g. AddDownloadAsync's own SQLite write). Applying that not-yet-seeded
+        // zero/empty state here would wipe out whatever this row was already correctly showing
+        // (the last persisted record, or a previous handle's progress) for the brief window until
+        // the handle's own first ProgressChanged/ChunksChanged arrives with the real values - the
+        // resume-time "jump to empty and back" from #10. Leaving the row's current display alone
+        // until there's real data to show avoids that; a genuinely fresh download has nothing
+        // worth preserving here anyway; since the row was just created at 0, this is a no-op.
+        if (handle.TotalBytes > 0)
+        {
+            BytesDownloaded = handle.BytesDownloaded;
+            TotalBytes = handle.TotalBytes;
+            SyncChunksFrom(handle.Chunks);
+        }
 
         handle.ProgressChanged += OnProgressChanged;
         handle.ChunksChanged += OnChunksChanged;
@@ -253,6 +267,7 @@ public sealed partial class DownloadRowViewModel : ViewModelBase
         _handle.ChunksChanged -= OnChunksChanged;
         _handle.LogMessage -= OnLogMessage;
         _handle = null;
+        HasActiveHandle = false;
     }
 
     /// <summary>Refreshes the persisted-only fields from a fresh repository snapshot. Skipped
@@ -268,7 +283,8 @@ public sealed partial class DownloadRowViewModel : ViewModelBase
         TotalBytes = record.TotalBytes;
     }
 
-    private void OnProgressChanged(object? sender, DownloadProgress progress) =>
+    private void OnProgressChanged(object? sender, DownloadProgress progress)
+    {
         Dispatcher.UIThread.Post(() =>
         {
             State = progress.State;
@@ -278,7 +294,18 @@ public sealed partial class DownloadRowViewModel : ViewModelBase
 
             if (progress.State == DownloadState.Failed)
                 LastError ??= "Download failed - see log for details.";
+
+            // This handle is done - most importantly on Failed, where DownloadManager's
+            // auto-retry may already be starting a *replacement* handle for this same download
+            // internally, with no direct call back into the UI. Detaching here (rather than only
+            // on an explicit user action) clears HasActiveHandle so the next reconciliation tick
+            // notices this row has no live handle and either picks up that replacement via
+            // GetActiveHandle, or - if there isn't one - falls back to the persisted record, so
+            // the row can't stay frozen on this now-dead handle's last state indefinitely.
+            if (progress.State is DownloadState.Completed or DownloadState.Failed or DownloadState.Cancelled)
+                Detach();
         });
+    }
 
     private void OnChunksChanged(object? sender, IReadOnlyList<ChunkProgress> chunks) =>
         Dispatcher.UIThread.Post(() => SyncChunksFrom(chunks));
