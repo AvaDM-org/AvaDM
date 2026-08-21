@@ -57,6 +57,16 @@ public sealed class DownloadSettings
     /// </summary>
     public TimeSpan DefaultPerAttemptTimeout { get; set; } = TimeSpan.FromSeconds(30);
 
+    /// <summary>
+    /// Number of times <see cref="DownloadManager"/> automatically resumes a download that ended
+    /// in <see cref="DownloadState.Failed"/> - e.g. once <see cref="DefaultMaxRetryAttempts"/> is
+    /// exhausted on a chunk because a stall outlasted the whole retry budget. Each automatic
+    /// resume continues from the <c>.avadm</c> footer, so no progress is lost between attempts.
+    /// <c>0</c> disables automatic retries; a manual resume always resets the counter, so it
+    /// never runs out for a user who keeps retrying by hand.
+    /// </summary>
+    public int DefaultAutoRetryAttempts { get; set; } = 10;
+
     /// <summary>Resolves <see cref="RepositoryPath"/> to a concrete file path, creating the
     /// containing directory if it doesn't exist yet. Called by <see cref="DownloadManager"/>
     /// when it opens the repository.</summary>
