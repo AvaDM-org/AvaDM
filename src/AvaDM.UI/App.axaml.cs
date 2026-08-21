@@ -53,13 +53,15 @@ public partial class App : Application
             var settings = new DownloadSettings();
             var uiPreferences = new UiPreferencesRepository(settings.GetResolvedRepositoryPath());
 
-            var (closeToTray, doubleClickAction) = LoadStoredPreferences(uiPreferences);
+            var (closeToTray, doubleClickAction, autoUpdateEnabled) = LoadStoredPreferences(uiPreferences);
 
             _httpClient = new HttpClient { Timeout = Timeout.InfiniteTimeSpan };
             var downloadManager = new DownloadManager(_httpClient, settings);
+            var updateService = new UpdateService(_httpClient);
 
             var mainWindowViewModel = new MainWindowViewModel(
-                downloadManager, settings, uiPreferences, closeToTray, doubleClickAction);
+                downloadManager, settings, uiPreferences, closeToTray, doubleClickAction,
+                autoUpdateEnabled, updateService, () => desktop.Shutdown());
             var window = new MainWindow { DataContext = mainWindowViewModel };
             desktop.MainWindow = window;
 
@@ -76,6 +78,15 @@ public partial class App : Application
 
             var trayIcon = TrayIcon.GetIcons(this)![0];
             _trayIconService = new TrayIconService(desktop, window, mainWindowViewModel, trayIcon);
+
+            // Fire-and-forget: CheckForUpdatesAsync swallows its own failures (silent: true means
+            // "don't surface an error/"you're up to date" message", not "don't check"), so there's
+            // nothing here to await or observe. An available update still updates
+            // SettingsViewModel's state, which both the Settings page and the tray menu pick up.
+            if (mainWindowViewModel.SettingsViewModel.AutoUpdateEnabled)
+            {
+                _ = mainWindowViewModel.SettingsViewModel.CheckForUpdatesAsync(silent: true);
+            }
         }
 
         base.OnFrameworkInitializationCompleted();
@@ -89,7 +100,7 @@ public partial class App : Application
     /// original theme-only fallback style - a store that can't be read (e.g. permissions issue)
     /// shouldn't block startup, it should just fall back to defaults (static Dark, minimize-to-
     /// tray, double-click opens the file).</summary>
-    private static (bool CloseToTray, DownloadDoubleClickAction DoubleClickAction) LoadStoredPreferences(
+    private static (bool CloseToTray, DownloadDoubleClickAction DoubleClickAction, bool AutoUpdateEnabled) LoadStoredPreferences(
         UiPreferencesRepository uiPreferences)
     {
         try
@@ -110,14 +121,17 @@ public partial class App : Application
                 ? DownloadDoubleClickAction.OpenContainingFolder
                 : DownloadDoubleClickAction.OpenFile;
 
-            return (closeToTray, doubleClickAction);
+            var storedAutoUpdateEnabled = uiPreferences.GetValueAsync(UiPreferencesRepository.AutoUpdateEnabledKey).GetAwaiter().GetResult();
+            var autoUpdateEnabled = bool.TryParse(storedAutoUpdateEnabled, out var parsedAutoUpdateEnabled) ? parsedAutoUpdateEnabled : true;
+
+            return (closeToTray, doubleClickAction, autoUpdateEnabled);
         }
         catch
         {
-            // Best-effort: keep the static Dark theme default and fall back to minimize-to-tray
-            // and open-file-on-double-click if the preferences store can't be read, rather than
-            // blocking startup on it.
-            return (true, DownloadDoubleClickAction.OpenFile);
+            // Best-effort: keep the static Dark theme default and fall back to minimize-to-tray,
+            // open-file-on-double-click, and auto-update-on if the preferences store can't be
+            // read, rather than blocking startup on it.
+            return (true, DownloadDoubleClickAction.OpenFile, true);
         }
     }
 }

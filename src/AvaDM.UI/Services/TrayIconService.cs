@@ -62,6 +62,7 @@ public sealed class TrayIconService
 
     private readonly IClassicDesktopStyleApplicationLifetime _desktop;
     private readonly MainWindow _window;
+    private readonly MainWindowViewModel _mainWindowViewModel;
     private readonly DownloadListViewModel _downloads;
     private readonly SettingsViewModel _settings;
     private readonly TrayIcon _trayIcon;
@@ -92,12 +93,14 @@ public sealed class TrayIconService
     {
         _desktop = desktop;
         _window = window;
+        _mainWindowViewModel = mainWindowViewModel;
         _downloads = mainWindowViewModel.DownloadListViewModel;
         _settings = mainWindowViewModel.SettingsViewModel;
         _trayIcon = trayIcon;
 
         _menu.NeedsUpdate += (_, _) => RebuildMenu();
         _downloads.DownloadsChanged += (_, _) => RebuildMenu();
+        _settings.UpdateAvailabilityChanged += (_, _) => RebuildMenu();
         _trayIcon.Menu = _menu;
         _trayIcon.Clicked += (_, _) => ToggleWindow();
 
@@ -135,6 +138,15 @@ public sealed class TrayIconService
         _lastHeaders.Clear();
 
         _menu.Items.Add(new NativeMenuItem("Open AvaDM") { Command = new RelayCommand(RestoreWindow) });
+
+        if (_settings.IsUpdateAvailable)
+        {
+            _menu.Items.Add(new NativeMenuItem($"Update available: {_settings.AvailableUpdateVersion}")
+            {
+                Command = new RelayCommand(ShowUpdateSettings),
+            });
+        }
+
         _menu.Items.Add(new NativeMenuItemSeparator());
 
         var downloadingRows = _downloads.GetDownloadingDownloads();
@@ -212,6 +224,12 @@ public sealed class TrayIconService
         _window.Show();
         _window.WindowState = WindowState.Normal;
         _window.Activate();
+    }
+
+    private void ShowUpdateSettings()
+    {
+        RestoreWindow();
+        _mainWindowViewModel.NavigateToSettingsCommand.Execute(null);
     }
 
     /// <summary>The tray icon's click handler: hides the window if it's currently shown

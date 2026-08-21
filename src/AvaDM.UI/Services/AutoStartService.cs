@@ -1,4 +1,5 @@
 using Microsoft.Win32;
+using Serilog;
 
 namespace AvaDM.UI.Services;
 
@@ -38,10 +39,12 @@ public static class AutoStartService
             if (OperatingSystem.IsMacOS())
                 return File.Exists(GetMacLaunchAgentPath());
         }
-        catch
+        catch (Exception ex)
         {
             // Best-effort: an unreadable registry key/autostart directory reads as "not enabled"
-            // rather than surfacing a startup-time error for a non-essential setting.
+            // rather than surfacing a startup-time error for a non-essential setting - still
+            // logged, though, so a stuck "off" reading is diagnosable after the fact.
+            Log.Warning(ex, "Couldn't read the autostart entry");
         }
 
         return false;
@@ -63,8 +66,9 @@ public static class AutoStartService
             if (OperatingSystem.IsMacOS())
                 return SetEnabledMac(enabled);
         }
-        catch
+        catch (Exception ex)
         {
+            Log.Warning(ex, "Couldn't {Action} autostart", enabled ? "enable" : "disable");
             return false;
         }
 

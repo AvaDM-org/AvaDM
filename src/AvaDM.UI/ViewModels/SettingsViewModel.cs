@@ -5,6 +5,7 @@ using AvaDM.Core.Diagnostics;
 using AvaDM.UI.Services;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using Serilog;
 
 namespace AvaDM.UI.ViewModels;
 
@@ -18,6 +19,8 @@ public sealed partial class SettingsViewModel : ViewModelBase
     private readonly DownloadSettings _settings;
     private readonly UiPreferencesRepository _uiPreferences;
     private readonly Action _navigateToDownloads;
+    private readonly UpdateService _updateService;
+    private readonly Action _requestAppExit;
 
     [ObservableProperty]
     private string _downloadDirectory;
@@ -87,16 +90,51 @@ public sealed partial class SettingsViewModel : ViewModelBase
     [NotifyPropertyChangedFor(nameof(IsDesktopShortcutRemovedSelected))]
     private bool _hasDesktopShortcut;
 
+    /// <summary>Whether AvaDM checks for updates on startup. Persisted through
+    /// <see cref="UiPreferencesRepository"/>, same as the theme/close-to-tray/double-click
+    /// toggles - unlike <see cref="StartWithSystem"/> and <see cref="HasDesktopShortcut"/> above,
+    /// there's no external OS entry to treat as the source of truth here.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsAutoUpdateEnabledSelected))]
+    [NotifyPropertyChangedFor(nameof(IsAutoUpdateDisabledSelected))]
+    private bool _autoUpdateEnabled;
+
+    [ObservableProperty]
+    private bool _isCheckingForUpdates;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasUpdateStatusMessage))]
+    private string? _updateStatusMessage;
+
+    /// <summary>Null until the first check completes. <see cref="IsUpdateAvailable"/> and
+    /// <see cref="AvailableUpdateVersion"/> are derived from this rather than being separate
+    /// observable fields, so there's one source of truth for "is there an update" that both the
+    /// Settings view and <see cref="Services.TrayIconService"/> (via
+    /// <see cref="UpdateAvailabilityChanged"/>) agree on.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsUpdateAvailable))]
+    [NotifyPropertyChangedFor(nameof(AvailableUpdateVersion))]
+    private UpdateCheckResult? _latestUpdateCheck;
+
+    /// <summary>Raised whenever a check completes, so <see cref="Services.TrayIconService"/> can
+    /// rebuild its menu to show/hide the "Update available" entry without polling.</summary>
+    public event EventHandler? UpdateAvailabilityChanged;
+
     public SettingsViewModel(
         DownloadSettings settings,
         UiPreferencesRepository uiPreferences,
         Action navigateToDownloads,
         bool closeToTray,
-        DownloadDoubleClickAction doubleClickAction)
+        DownloadDoubleClickAction doubleClickAction,
+        bool autoUpdateEnabled,
+        UpdateService updateService,
+        Action requestAppExit)
     {
         _settings = settings;
         _uiPreferences = uiPreferences;
         _navigateToDownloads = navigateToDownloads;
+        _updateService = updateService;
+        _requestAppExit = requestAppExit;
 
         _downloadDirectory = settings.DefaultDownloadDirectory;
         _chunkCount = settings.DefaultChunkCount;
@@ -110,9 +148,20 @@ public sealed partial class SettingsViewModel : ViewModelBase
         _doubleClickAction = doubleClickAction;
         _startWithSystem = AutoStartService.IsEnabled();
         _hasDesktopShortcut = DesktopShortcutService.IsCreated();
+        _autoUpdateEnabled = autoUpdateEnabled;
     }
 
     public bool ShowDesktopShortcutSection => OperatingSystem.IsLinux();
+
+    public bool IsUpdateAvailable => LatestUpdateCheck?.IsAvailable == true;
+
+    public string? AvailableUpdateVersion => LatestUpdateCheck?.LatestVersion;
+
+    partial void OnLatestUpdateCheckChanged(UpdateCheckResult? value)
+    {
+        UpdateAvailabilityChanged?.Invoke(this, EventArgs.Empty);
+        InstallUpdateCommand.NotifyCanExecuteChanged();
+    }
 
     public string ResolvedRepositoryPathHint => _settings.GetResolvedRepositoryPath();
 
@@ -137,6 +186,12 @@ public sealed partial class SettingsViewModel : ViewModelBase
     public bool IsDesktopShortcutCreatedSelected => HasDesktopShortcut;
 
     public bool IsDesktopShortcutRemovedSelected => !HasDesktopShortcut;
+
+    public bool IsAutoUpdateEnabledSelected => AutoUpdateEnabled;
+
+    public bool IsAutoUpdateDisabledSelected => !AutoUpdateEnabled;
+
+    public bool HasUpdateStatusMessage => !string.IsNullOrEmpty(UpdateStatusMessage);
 
     public bool IsDoubleClickOpenFileSelected => DoubleClickAction == DownloadDoubleClickAction.OpenFile;
 
@@ -217,6 +272,96 @@ public sealed partial class SettingsViewModel : ViewModelBase
             ErrorMessage = "Couldn't remove the desktop shortcut.";
         }
     }
+
+    [RelayCommand]
+    private async Task SelectAutoUpdateEnabled()
+    {
+        AutoUpdateEnabled = true;
+        await _uiPreferences.SetValueAsync(UiPreferencesRepository.AutoUpdateEnabledKey, "true");
+    }
+
+    [RelayCommand]
+    private async Task SelectAutoUpdateDisabled()
+    {
+        AutoUpdateEnabled = false;
+        await _uiPreferences.SetValueAsync(UiPreferencesRepository.AutoUpdateEnabledKey, "false");
+    }
+
+    /// <summary>Runs a check without user-facing chrome around it - used for the silent
+    /// startup check (see App.axaml.cs) as well as by <see cref="CheckForUpdates"/> below.
+    /// <paramref name="silent"/> only affects <see cref="UpdateStatusMessage"/> noise: an
+    /// available update is always surfaced (that's the whole point), but "you're up to date" and
+    /// error text are only shown for an explicit, user-initiated check.</summary>
+    public async Task CheckForUpdatesAsync(bool silent)
+    {
+        if (IsCheckingForUpdates)
+            return;
+
+        IsCheckingForUpdates = true;
+        CheckForUpdatesCommand.NotifyCanExecuteChanged();
+        InstallUpdateCommand.NotifyCanExecuteChanged();
+        if (!silent)
+            UpdateStatusMessage = "Checking for updates...";
+
+        try
+        {
+            var result = await _updateService.CheckForUpdateAsync();
+            LatestUpdateCheck = result;
+            UpdateStatusMessage = result.IsAvailable
+                ? $"AvaDM {result.LatestVersion} is available."
+                : silent ? null : "You're up to date.";
+        }
+        catch (Exception ex)
+        {
+            Log.Warning(ex, "Update check failed");
+            if (!silent)
+                UpdateStatusMessage = $"Couldn't check for updates: {ex.Message}";
+        }
+        finally
+        {
+            IsCheckingForUpdates = false;
+            CheckForUpdatesCommand.NotifyCanExecuteChanged();
+            InstallUpdateCommand.NotifyCanExecuteChanged();
+        }
+    }
+
+    [RelayCommand(CanExecute = nameof(CanCheckForUpdates))]
+    private Task CheckForUpdates() => CheckForUpdatesAsync(silent: false);
+
+    private bool CanCheckForUpdates() => !IsCheckingForUpdates;
+
+    [RelayCommand(CanExecute = nameof(CanInstallUpdate))]
+    private async Task InstallUpdate()
+    {
+        if (LatestUpdateCheck is not { IsAvailable: true } update)
+            return;
+
+        IsCheckingForUpdates = true;
+        InstallUpdateCommand.NotifyCanExecuteChanged();
+        UpdateStatusMessage = "Installing update...";
+
+        try
+        {
+            var progress = new Progress<string>(message => UpdateStatusMessage = message);
+            var result = await _updateService.ApplyUpdateAsync(update, progress);
+            UpdateStatusMessage = result.Message ?? (result.Succeeded ? "Update applied." : "Update failed.");
+
+            if (result.Succeeded && result.ShouldExitApp)
+                _requestAppExit();
+        }
+        catch (Exception ex)
+        {
+            Log.Warning(ex, "Update install failed");
+            UpdateStatusMessage = $"Update failed: {ex.Message}";
+        }
+        finally
+        {
+            IsCheckingForUpdates = false;
+            InstallUpdateCommand.NotifyCanExecuteChanged();
+        }
+    }
+
+    private bool CanInstallUpdate() => IsUpdateAvailable && !IsCheckingForUpdates;
 
     [RelayCommand]
     private async Task SelectDoubleClickOpenFile()

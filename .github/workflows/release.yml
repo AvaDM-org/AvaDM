@@ -192,6 +192,14 @@ jobs:
           path: artifacts
           merge-multiple: true
 
+      - name: Generate checksums
+        # UpdateService (src/AvaDM.UI/Services/UpdateService.cs) verifies a downloaded update
+        # asset against this file before applying it, so every asset needs a line in it.
+        run: |
+          cd artifacts
+          sha256sum AvaDM-* > SHA256SUMS.txt
+          cd -
+
       - name: Create draft GitHub release
         env:
           GH_TOKEN: ${{ github.token }}

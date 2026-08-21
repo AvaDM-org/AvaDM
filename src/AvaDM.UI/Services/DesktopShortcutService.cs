@@ -1,3 +1,5 @@
+using Serilog;
+
 namespace AvaDM.UI.Services;
 
 /// <summary>
@@ -22,8 +24,9 @@ public static class DesktopShortcutService
         {
             return OperatingSystem.IsLinux() && File.Exists(GetDesktopFilePath());
         }
-        catch
+        catch (Exception ex)
         {
+            Log.Warning(ex, "Couldn't check for the desktop shortcut");
             return false;
         }
     }
@@ -69,8 +72,9 @@ public static class DesktopShortcutService
                  """);
             return true;
         }
-        catch
+        catch (Exception ex)
         {
+            Log.Warning(ex, "Couldn't {Action} the desktop shortcut", created ? "create" : "remove");
             return false;
         }
     }

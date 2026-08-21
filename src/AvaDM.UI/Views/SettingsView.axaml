@@ -269,6 +269,57 @@
                     BorderBrush="{DynamicResource BorderBrush}"
                     BorderThickness="1"
                     CornerRadius="{StaticResource RadiusCard}"
+                    Padding="{StaticResource PanelPadding}">
+                <StackPanel Spacing="{StaticResource SpaceSm}">
+                    <TextBlock Text="Updates"
+                               FontSize="{StaticResource HeadingSmFontSize}"
+                               FontWeight="{StaticResource HeadingSmFontWeight}"
+                               Foreground="{DynamicResource TextPrimaryBrush}" />
+                    <TextBlock Text="Check for a newer AvaDM version automatically when the app starts?"
+                               FontSize="{StaticResource BodyMdFontSize}"
+                               Foreground="{DynamicResource TextSecondaryBrush}" />
+                    <StackPanel Orientation="Horizontal" Spacing="{StaticResource SpaceXs}">
+                        <Panel>
+                            <Button Classes="primary" Content="Check Automatically"
+                                    Command="{Binding SelectAutoUpdateEnabledCommand}"
+                                    IsVisible="{Binding IsAutoUpdateEnabledSelected}" />
+                            <Button Classes="secondary" Content="Check Automatically"
+                                    Command="{Binding SelectAutoUpdateEnabledCommand}"
+                                    IsVisible="{Binding !IsAutoUpdateEnabledSelected}" />
+                        </Panel>
+                        <Panel>
+                            <Button Classes="primary" Content="Don't Check Automatically"
+                                    Command="{Binding SelectAutoUpdateDisabledCommand}"
+                                    IsVisible="{Binding IsAutoUpdateDisabledSelected}" />
+                            <Button Classes="secondary" Content="Don't Check Automatically"
+                                    Command="{Binding SelectAutoUpdateDisabledCommand}"
+                                    IsVisible="{Binding !IsAutoUpdateDisabledSelected}" />
+                        </Panel>
+                    </StackPanel>
+                    <Grid ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="{StaticResource SpaceSm}">
+                        <TextBlock Grid.Column="0" Text="Version"
+                                   FontSize="{StaticResource BodyMdFontSize}"
+                                   Foreground="{DynamicResource TextSecondaryBrush}"
+                                   VerticalAlignment="Center" />
+                        <TextBlock Grid.Column="1" Text="{Binding UpdateStatusMessage}"
+                                   IsVisible="{Binding HasUpdateStatusMessage}"
+                                   FontSize="{StaticResource BodyMdFontSize}"
+                                   Foreground="{DynamicResource TextSecondaryBrush}"
+                                   VerticalAlignment="Center"
+                                   TextWrapping="Wrap" />
+                        <Button Grid.Column="2" Classes="secondary" Content="Check for Updates"
+                                Command="{Binding CheckForUpdatesCommand}" />
+                        <Button Grid.Column="3" Classes="primary" Content="Update Now"
+                                Command="{Binding InstallUpdateCommand}"
+                                IsVisible="{Binding IsUpdateAvailable}" />
+                    </Grid>
+                </StackPanel>
+            </Border>
+
+            <Border Background="{DynamicResource SurfaceBrush}"
+                    BorderBrush="{DynamicResource BorderBrush}"
+                    BorderThickness="1"
+                    CornerRadius="{StaticResource RadiusCard}"
                     Padding="{StaticResource PanelPadding}"
                     IsVisible="{Binding ShowDesktopShortcutSection}">
                 <StackPanel Spacing="{StaticResource SpaceSm}">

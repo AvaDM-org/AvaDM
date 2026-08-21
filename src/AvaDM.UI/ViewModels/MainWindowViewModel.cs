@@ -27,9 +27,14 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         DownloadSettings settings,
         UiPreferencesRepository uiPreferences,
         bool closeToTray,
-        DownloadDoubleClickAction doubleClickAction)
+        DownloadDoubleClickAction doubleClickAction,
+        bool autoUpdateEnabled,
+        UpdateService updateService,
+        Action requestAppExit)
     {
-        _settingsViewModel = new SettingsViewModel(settings, uiPreferences, NavigateToDownloads, closeToTray, doubleClickAction);
+        _settingsViewModel = new SettingsViewModel(
+            settings, uiPreferences, NavigateToDownloads, closeToTray, doubleClickAction,
+            autoUpdateEnabled, updateService, requestAppExit);
         _downloadListViewModel = new DownloadListViewModel(
             downloadManager, NavigateToSettings, () => _settingsViewModel.DoubleClickAction);
         _currentPageViewModel = _downloadListViewModel;
