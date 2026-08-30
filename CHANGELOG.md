@@ -11,6 +11,31 @@ fail fast if its version has no section here**. Add the entry before pushing the
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-08-31
+
+### Added
+
+- **Downloads from servers that don't report a size now work instead of crashing.** A missing
+  `Content-Length` header used to throw and surface as a startup crash log (#7). AvaDM now falls
+  back to a single, non-resumable stream and shows the size as "???" - with an indeterminate
+  progress bar instead of one stuck at 0% - until the download finishes, at which point the real
+  size fills in.
+
+### Fixed
+
+- **A slow-but-steady download could be killed and restarted from scratch over and over, never
+  completing**, if its total transfer time happened to exceed the retry timeout. That timeout used
+  to bound an entire attempt's duration rather than how long it went quiet, which is fatal to a
+  non-resumable download (the case above, or a server that doesn't support Range requests): every
+  retry there restarts from byte 0, so it would hit the same wall at the same point forever. It's
+  now a genuine inactivity timeout, reset on every byte received, so only an actually-stalled
+  connection gets retried.
+
+### Changed
+
+- Settings > "Per-attempt timeout" is renamed to "Inactivity timeout" to match the fix above -
+  `DownloadSettings.DefaultPerAttemptTimeout` is renamed to `DefaultInactivityTimeout`.
+
 ## [1.2.2] - 2026-08-31
 
 ### Fixed
