@@ -11,6 +11,20 @@ fail fast if its version has no section here**. Add the entry before pushing the
 
 ## [Unreleased]
 
+## [1.2.2] - 2026-08-31
+
+### Fixed
+
+- **A minimized autostart launch (or the tray icon's hide/show) could leave the main window a
+  blank, inert taskbar/dock entry on Linux and macOS**, with nothing ever drawn once it came back
+  from `Show()` - the only way to get rid of it was closing it from that entry's own menu. This
+  works around an underlying Avalonia rendering bug
+  ([AvaloniaUI/Avalonia#2994](https://github.com/AvaloniaUI/Avalonia/issues/2994),
+  [#18148](https://github.com/AvaloniaUI/Avalonia/issues/18148)) by toggling `ShowInTaskbar`
+  alongside every `Hide()`/`Show()` pair (autostart, the tray icon's manual toggle, and
+  close-to-tray). Windows already hides the taskbar entry on its own, so the extra toggle is a
+  no-op there.
+
 ## [1.2.1] - 2026-08-22
 
 Fixes the download progress bar jitter reported in #10, plus two related consistency bugs found

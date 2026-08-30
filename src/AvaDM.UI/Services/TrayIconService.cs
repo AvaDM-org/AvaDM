@@ -223,6 +223,10 @@ public sealed class TrayIconService
     /// a second launch signals this instance instead of starting its own.</summary>
     public void RestoreWindow()
     {
+        // ShowInTaskbar back to true before Show() - the other half of the workaround documented
+        // on the Hide() calls in this class and in App.axaml.cs, for the Avalonia rendering bug
+        // that otherwise leaves the restored window blank on Linux/macOS.
+        _window.ShowInTaskbar = true;
         _window.Show();
         _window.WindowState = WindowState.Normal;
         _window.Activate();
@@ -241,7 +245,11 @@ public sealed class TrayIconService
     {
         if (_window.IsVisible && _window.WindowState != WindowState.Minimized)
         {
+            // See App.axaml.cs's --minimized handling for why ShowInTaskbar is toggled alongside
+            // Hide()/Show() - same Avalonia rendering-after-restore bug applies to this manual
+            // toggle, not just the autostart path.
             _window.Hide();
+            _window.ShowInTaskbar = false;
         }
         else
         {
@@ -256,6 +264,7 @@ public sealed class TrayIconService
 
         e.Cancel = true;
         _window.Hide();
+        _window.ShowInTaskbar = false;
     }
 
     /// <summary>The tray menu's own Exit item - always performs a real shutdown, bypassing the

@@ -71,9 +71,23 @@ public partial class App : Application
             // so hiding it in the Opened handler (rather than skipping the MainWindow assignment
             // above) is what avoids that - it costs a brief window flash instead of a more
             // invasive change to how MainWindow/TrayIconService are wired up.
+            //
+            // ShowInTaskbar = false right after Hide() works around a real Avalonia rendering bug
+            // on Linux (and, per the upstream reports, macOS) where a window hidden this way comes
+            // back from the next Show() with no content ever drawn - visible on the desktop only as
+            // an inert, blank taskbar/dock entry the user has to close by hand, since there's
+            // nothing on screen to interact with. Windows already hides the taskbar entry itself
+            // when the window is hidden, so this is a no-op there. See
+            // https://github.com/AvaloniaUI/Avalonia/issues/2994 and
+            // https://github.com/AvaloniaUI/Avalonia/issues/18148 - TrayIconService.RestoreWindow
+            // sets ShowInTaskbar back to true before the matching Show().
             if (desktop.Args?.Contains("--minimized") == true)
             {
-                window.Opened += (_, _) => window.Hide();
+                window.Opened += (_, _) =>
+                {
+                    window.Hide();
+                    window.ShowInTaskbar = false;
+                };
             }
 
             var trayIcon = TrayIcon.GetIcons(this)![0];
