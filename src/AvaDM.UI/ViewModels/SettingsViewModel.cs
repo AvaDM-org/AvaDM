@@ -41,7 +41,7 @@ public sealed partial class SettingsViewModel : ViewModelBase
     private string _retryBaseDelaySecondsInput;
 
     [ObservableProperty]
-    private string _perAttemptTimeoutSecondsInput;
+    private string _inactivityTimeoutSecondsInput;
 
     [ObservableProperty]
     private int _autoRetryAttempts;
@@ -145,7 +145,7 @@ public sealed partial class SettingsViewModel : ViewModelBase
         _repositoryPathInput = settings.RepositoryPath ?? string.Empty;
         _maxRetryAttempts = settings.DefaultMaxRetryAttempts;
         _retryBaseDelaySecondsInput = settings.DefaultRetryBaseDelay.TotalSeconds.ToString("0.##");
-        _perAttemptTimeoutSecondsInput = settings.DefaultPerAttemptTimeout.TotalSeconds.ToString("0.##");
+        _inactivityTimeoutSecondsInput = settings.DefaultInactivityTimeout.TotalSeconds.ToString("0.##");
         _autoRetryAttempts = settings.DefaultAutoRetryAttempts;
         _isDarkTheme = Application.Current!.RequestedThemeVariant == ThemeVariant.Dark;
         _closeToTray = closeToTray;
@@ -422,10 +422,10 @@ public sealed partial class SettingsViewModel : ViewModelBase
             return;
         }
 
-        if (!double.TryParse(PerAttemptTimeoutSecondsInput, out var perAttemptTimeoutSeconds)
-            || perAttemptTimeoutSeconds <= 0)
+        if (!double.TryParse(InactivityTimeoutSecondsInput, out var inactivityTimeoutSeconds)
+            || inactivityTimeoutSeconds <= 0)
         {
-            ErrorMessage = "Per-attempt timeout must be a positive number of seconds.";
+            ErrorMessage = "Inactivity timeout must be a positive number of seconds.";
             return;
         }
 
@@ -437,7 +437,7 @@ public sealed partial class SettingsViewModel : ViewModelBase
             : RepositoryPathInput.Trim();
         _settings.DefaultMaxRetryAttempts = MaxRetryAttempts;
         _settings.DefaultRetryBaseDelay = TimeSpan.FromSeconds(retryBaseDelaySeconds);
-        _settings.DefaultPerAttemptTimeout = TimeSpan.FromSeconds(perAttemptTimeoutSeconds);
+        _settings.DefaultInactivityTimeout = TimeSpan.FromSeconds(inactivityTimeoutSeconds);
         _settings.DefaultAutoRetryAttempts = AutoRetryAttempts;
         StatusMessage = "Settings saved.";
     }
