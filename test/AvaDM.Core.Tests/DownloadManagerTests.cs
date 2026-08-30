@@ -189,6 +189,57 @@ public sealed class DownloadManagerTests : IDisposable
         Assert.NotNull(await repository.GetByIdAsync(id));
     }
 
+    /// <summary>Regression test for #14: a HEAD response with no Content-Length used to throw
+    /// (an unobserved-task-exception crash, #7) instead of falling back to a single,
+    /// non-resumable stream. TotalBytes/the chunk's end byte should start unknown (0 / -1, see
+    /// <see cref="DownloadHandle.FinalizeUnknownSizeDownload"/>) and be backfilled with the real
+    /// size once the download finishes.</summary>
+    [Fact]
+    public async Task AddDownloadAsync_NoContentLength_FallsBackToSingleChunkAndBackfillsSizeOnCompletion()
+    {
+        var payload = CreatePayload(256 * 1024);
+        await using var server = await LocalHttpServer.StartAsync(payload, holdBody: false, omitContentLength: true);
+        var destination = Path.Combine(_tempDirectory, "unknown-size.bin");
+        using var client = CreateHttpClient();
+        var manager = CreateManager(client);
+
+        var added = await manager.AddDownloadAsync(server.Uri, destination);
+        Assert.True(added.Success);
+        var handle = added.Handle!;
+
+        // Wait until the GET response headers have gone out - by then HEAD has definitely
+        // completed (chunks initialized) and the body write is only just starting, so the
+        // still-unknown state below is guaranteed rather than racing HEAD's own completion.
+        await server.GetHeadersSent;
+
+        // TotalBytes and the chunk's end byte are still unknown while the HEAD response carried
+        // no size - this is the "???" state the UI shows.
+        Assert.Equal(0, handle.TotalBytes);
+        var chunk = Assert.Single(handle.Chunks);
+        Assert.True(chunk.EndByte < chunk.StartByte);
+
+        await handle.Completion;
+
+        Assert.Equal(DownloadState.Completed, handle.State);
+        Assert.Equal(payload.Length, handle.TotalBytes);
+        var finishedChunk = Assert.Single(handle.Chunks);
+        Assert.Equal(0, finishedChunk.StartByte);
+        Assert.Equal(payload.Length - 1, finishedChunk.EndByte);
+        Assert.Equal(payload.Length, handle.BytesDownloaded);
+
+        Assert.True(File.Exists(destination));
+        Assert.Equal(payload, await File.ReadAllBytesAsync(destination));
+        Assert.False(File.Exists(destination + ".avadm"));
+
+        // SyncToRepository's terminal-state DB write fires from a Completion continuation rather
+        // than being awaited by AddDownloadAsync - give it a moment to land, same as
+        // FailedDownload_AutoRetries_UpToConfiguredLimitThenStops below.
+        await Task.Delay(200);
+        var record = await manager.GetDownloadAsync(added.Id!.Value);
+        Assert.NotNull(record);
+        Assert.Equal(payload.Length, record!.TotalBytes);
+    }
+
     [Fact]
     public async Task FailedDownload_AutoRetries_UpToConfiguredLimitThenStops()
     {
@@ -321,6 +372,7 @@ public sealed class DownloadManagerTests : IDisposable
         private readonly TcpListener _listener;
         private readonly byte[] _payload;
         private readonly bool _holdBody;
+        private readonly bool _omitContentLength;
         private readonly CancellationTokenSource _stop = new();
         private readonly Task _acceptLoop;
         private readonly ConcurrentBag<Task> _connections = new();
@@ -329,10 +381,11 @@ public sealed class DownloadManagerTests : IDisposable
         private readonly TaskCompletionSource<bool> _bodyGate =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
 
-        private LocalHttpServer(byte[] payload, bool holdBody)
+        private LocalHttpServer(byte[] payload, bool holdBody, bool omitContentLength)
         {
             _payload = payload;
             _holdBody = holdBody;
+            _omitContentLength = omitContentLength;
             _listener = new TcpListener(IPAddress.Loopback, port: 0);
             _listener.Start();
             var endpoint = (IPEndPoint)_listener.LocalEndpoint;
@@ -343,8 +396,8 @@ public sealed class DownloadManagerTests : IDisposable
         public Uri Uri { get; }
         public Task GetHeadersSent => _getHeadersSent.Task;
 
-        public static Task<LocalHttpServer> StartAsync(byte[] payload, bool holdBody) =>
-            Task.FromResult(new LocalHttpServer(payload, holdBody));
+        public static Task<LocalHttpServer> StartAsync(byte[] payload, bool holdBody, bool omitContentLength = false) =>
+            Task.FromResult(new LocalHttpServer(payload, holdBody, omitContentLength));
 
         private async Task AcceptLoopAsync()
         {
@@ -376,10 +429,11 @@ public sealed class DownloadManagerTests : IDisposable
                     if (request is null)
                         return;
 
+                    var contentLength = _omitContentLength ? (int?)null : _payload.Length;
                     var method = request.Split(' ', 2)[0];
                     if (method.Equals("HEAD", StringComparison.OrdinalIgnoreCase))
                     {
-                        await WriteResponseHeadersAsync(stream, 200, _payload.Length, _stop.Token);
+                        await WriteResponseHeadersAsync(stream, 200, contentLength, _stop.Token);
                         return;
                     }
 
@@ -389,7 +443,7 @@ public sealed class DownloadManagerTests : IDisposable
                         return;
                     }
 
-                    await WriteResponseHeadersAsync(stream, 200, _payload.Length, _stop.Token);
+                    await WriteResponseHeadersAsync(stream, 200, contentLength, _stop.Token);
                     _getHeadersSent.TrySetResult(true);
                     if (_holdBody)
                         await _bodyGate.Task.WaitAsync(_stop.Token);
@@ -439,11 +493,12 @@ public sealed class DownloadManagerTests : IDisposable
         }
 
         private static async Task WriteResponseHeadersAsync(
-            NetworkStream stream, int statusCode, int contentLength, CancellationToken ct)
+            NetworkStream stream, int statusCode, int? contentLength, CancellationToken ct)
         {
             var reason = statusCode == 200 ? "OK" : "Method Not Allowed";
+            var contentLengthLine = contentLength.HasValue ? $"Content-Length: {contentLength}\r\n" : "";
             var response = $"HTTP/1.1 {statusCode} {reason}\r\n" +
-                           $"Content-Length: {contentLength}\r\n" +
+                           contentLengthLine +
                            "Content-Type: application/octet-stream\r\n" +
                            "Connection: close\r\n\r\n";
             var bytes = Encoding.ASCII.GetBytes(response);
