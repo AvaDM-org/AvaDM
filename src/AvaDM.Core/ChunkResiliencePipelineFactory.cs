@@ -10,21 +10,24 @@ namespace AvaDM.Core;
 /// attempt. Callers own the resulting <see cref="ResiliencePipeline"/> - build once and reuse
 /// across every <see cref="Downloader"/> call, it's expensive to build and cheap/thread-safe
 /// to execute.
+///
+/// Deliberately just a retry policy - no <c>AddTimeout</c> here. A flat per-execution timeout
+/// would bound an attempt's total duration, which is wrong for a large chunk (or a whole-file
+/// download) that's merely slow-but-steady rather than stalled, and actively harmful for a
+/// non-resumable whole-file attempt whose real transfer time exceeds it: every retry there
+/// restarts from byte 0, so it would hit the same wall at the same point forever. Instead,
+/// <see cref="Downloader"/> runs its own resettable inactivity watchdog inside each attempt and
+/// throws <see cref="TimeoutRejectedException"/> - handled below like any other retryable
+/// failure - only when an attempt goes genuinely silent for <see cref="DownloadSettings.DefaultInactivityTimeout"/>.
 /// </summary>
 public static class ChunkResiliencePipelineFactory
 {
     public static ResiliencePipeline Create(
         int maxRetryAttempts = 5,
         TimeSpan? baseRetryDelay = null,
-        TimeSpan? perAttemptTimeout = null,
         Action<int, TimeSpan, Exception?>? onRetry = null)
     {
         var delay = baseRetryDelay ?? TimeSpan.FromSeconds(1);
-        // Bounds a single attempt (connect + this attempt's transfer), not the whole chunk.
-        // Each retry gets a fresh budget because this sits inside the retry strategy.
-        // NB: fixed per-attempt timeout, not a stall/inactivity timeout - a large chunk that
-        // trickles in slowly-but-steadily could still hit this. Revisit if that becomes a problem.
-        var timeout = perAttemptTimeout ?? TimeSpan.FromSeconds(30);
 
         return new ResiliencePipelineBuilder()
             .AddRetry(new RetryStrategyOptions
@@ -43,8 +46,6 @@ public static class ChunkResiliencePipelineFactory
                     return default;
                 }
             })
-            // Added after retry, so it wraps each individual attempt rather than the whole chunk.
-            .AddTimeout(timeout)
             .Build();
     }
 

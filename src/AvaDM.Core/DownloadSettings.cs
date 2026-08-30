@@ -40,7 +40,7 @@ public sealed class DownloadSettings
     /// <summary>
     /// Number of times a failed chunk (or whole-file) download attempt is retried before the
     /// chunk is marked <see cref="ChunkStatus.Failed"/>. Covers transient connection errors,
-    /// I/O errors, per-attempt timeouts, and HTTP 408/429/5xx responses - see
+    /// I/O errors, inactivity timeouts, and HTTP 408/429/5xx responses - see
     /// <see cref="ChunkResiliencePipelineFactory"/>.
     /// </summary>
     public int DefaultMaxRetryAttempts { get; set; } = 5;
@@ -52,16 +52,27 @@ public sealed class DownloadSettings
     public TimeSpan DefaultRetryBaseDelay { get; set; } = TimeSpan.FromSeconds(1);
 
     /// <summary>
-    /// Timeout applied to a single download attempt (connect plus that attempt's transfer), not
-    /// to the whole chunk - each retry gets a fresh budget.
+    /// How long a single attempt (an initial response, or any subsequent read) can go without
+    /// receiving anything at all before it's treated as stalled and retried - not a cap on the
+    /// attempt's total duration. Reset on every byte received (see <c>Downloader</c>'s stall
+    /// watchdog), so a transfer that's merely slow-but-steady runs for as long as it takes; only
+    /// genuine silence counts against this. A flat attempt-duration timeout would otherwise be
+    /// fatal to a non-resumable whole-file download (no <c>Content-Length</c>, or no Range
+    /// support) whose real transfer time exceeds it: every retry there restarts from byte 0, so
+    /// it would hit the same wall at the same point forever instead of ever finishing.
     /// </summary>
-    public TimeSpan DefaultPerAttemptTimeout { get; set; } = TimeSpan.FromSeconds(30);
+    public TimeSpan DefaultInactivityTimeout { get; set; } = TimeSpan.FromSeconds(30);
 
     /// <summary>
     /// Number of times <see cref="DownloadManager"/> automatically resumes a download that ended
     /// in <see cref="DownloadState.Failed"/> - e.g. once <see cref="DefaultMaxRetryAttempts"/> is
-    /// exhausted on a chunk because a stall outlasted the whole retry budget. Each automatic
-    /// resume continues from the <c>.avadm</c> footer, so no progress is lost between attempts.
+    /// exhausted on a chunk because a stall outlasted the whole retry budget. For a resumable
+    /// (ranged) download, each automatic resume continues from the <c>.avadm</c> footer, so no
+    /// progress is lost between attempts. A non-resumable whole-file download (no
+    /// <c>Content-Length</c>, or no Range support) has no such footer, so each automatic resume
+    /// there restarts from byte 0 like any other retry of that download - genuinely repeated
+    /// failures still cost a full re-download per attempt. Not addressed here; see the
+    /// unknown-size fallback's known limitations.
     /// <c>0</c> disables automatic retries; a manual resume always resets the counter, so it
     /// never runs out for a user who keeps retrying by hand.
     /// </summary>

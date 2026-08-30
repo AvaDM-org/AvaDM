@@ -3,6 +3,7 @@ using System.Buffers.Binary;
 using System.Net.Http.Headers;
 using Microsoft.Win32.SafeHandles;
 using Polly;
+using Polly.Timeout;
 
 namespace AvaDM.Core;
 
@@ -97,7 +98,6 @@ public class Downloader
         var pipeline = ChunkResiliencePipelineFactory.Create(
             _settings.DefaultMaxRetryAttempts,
             _settings.DefaultRetryBaseDelay,
-            _settings.DefaultPerAttemptTimeout,
             onRetry: (attempt, delay, ex) =>
                 handle.LogDiagnostic($"Request failed (attempt {attempt}), retrying in {delay.TotalSeconds:0.0}s: {ex?.Message}"));
 
@@ -395,6 +395,60 @@ public class Downloader
         return Task.CompletedTask;
     }
 
+    /// <summary>Sends <paramref name="request"/> on <paramref name="stallCts"/>'s token, so a
+    /// connect/response-headers phase that never gets anywhere is cancelled after
+    /// <paramref name="stallTimeout"/> - converted to <see cref="TimeoutRejectedException"/>
+    /// (handled by the resilience pipeline's retry policy) rather than a bare cancellation, which
+    /// would otherwise be indistinguishable from <paramref name="cancellationToken"/> firing for
+    /// a real pause/cancel and must never be retried. Rearms the watchdog on success, so the
+    /// subsequent body read starts with a fresh inactivity budget.</summary>
+    private async Task<HttpResponseMessage> SendWithStallWatchdogAsync(
+        HttpRequestMessage request,
+        CancellationTokenSource stallCts,
+        TimeSpan stallTimeout,
+        CancellationToken cancellationToken)
+    {
+        HttpResponseMessage response;
+        try
+        {
+            response = await _client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, stallCts.Token);
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            throw new TimeoutRejectedException($"No response after {stallTimeout.TotalSeconds:0}s of inactivity.");
+        }
+
+        stallCts.CancelAfter(stallTimeout);
+        return response;
+    }
+
+    /// <summary>Same idea as <see cref="SendWithStallWatchdogAsync"/>, for one body read: only a
+    /// read that returns nothing at all for <paramref name="stallTimeout"/> counts as stalled -
+    /// rearms on any non-zero read, so a transfer that's merely slow-but-steady is never
+    /// penalized for its total duration, only for going silent.</summary>
+    private static async Task<int> ReadWithStallWatchdogAsync(
+        Stream stream,
+        Memory<byte> buffer,
+        CancellationTokenSource stallCts,
+        TimeSpan stallTimeout,
+        CancellationToken cancellationToken)
+    {
+        int bytesRead;
+        try
+        {
+            bytesRead = await stream.ReadAsync(buffer, stallCts.Token);
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            throw new TimeoutRejectedException($"No data received for {stallTimeout.TotalSeconds:0}s.");
+        }
+
+        if (bytesRead > 0)
+            stallCts.CancelAfter(stallTimeout);
+
+        return bytesRead;
+    }
+
     private async Task DownloadChunkAsync(
         SafeFileHandle fileHandle,
         Uri uri,
@@ -415,29 +469,32 @@ public class Downloader
         }
 
         long currentOffset = start + alreadyDownloaded;
+        var stallTimeout = _settings.DefaultInactivityTimeout;
 
         handle.SetChunkStatus(chunkIndex, ChunkStatus.Downloading);
         try
         {
             // The wait for resume deliberately sits outside pipeline.ExecuteAsync, on the
             // download's own (not time-boxed) cancellationToken - never on the per-attempt `ct`
-            // Polly hands the delegate below. That `ct` is cancelled by AddTimeout on a fixed
-            // wall clock regardless of what's being awaited, so a pause held inside it would
-            // eventually trip TimeoutRejectedException, get retried, and immediately hit the
-            // still-paused wait again - a fast retry loop that burns every attempt while paused.
-            // Instead, a pause request ends the current attempt cleanly (IsPaused check below,
-            // no exception raised) and the next attempt's Range request just continues from
-            // wherever currentOffset landed, once resumed.
+            // Polly hands the delegate below, or the stall watchdog's own linked token. Either of
+            // those firing mid-pause would trip TimeoutRejectedException, get retried, and
+            // immediately hit the still-paused wait again - a fast retry loop that burns every
+            // attempt while paused. Instead, a pause request ends the current attempt cleanly
+            // (IsPaused check below, no exception raised) and the next attempt's Range request
+            // just continues from wherever currentOffset landed, once resumed.
             while (currentOffset <= end)
             {
                 await handle.PauseTokenSource.WaitWhilePausedAsync(cancellationToken);
 
                 await pipeline.ExecuteAsync(async ct =>
                 {
+                    using var stallCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                    stallCts.CancelAfter(stallTimeout);
+
                     var req = new HttpRequestMessage(HttpMethod.Get, uri);
                     req.Headers.Range = new RangeHeaderValue(currentOffset, end);
 
-                    using var resp = await _client.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, ct);
+                    using var resp = await SendWithStallWatchdogAsync(req, stallCts, stallTimeout, ct);
                     resp.EnsureSuccessStatusCode();
 
                     await using var stream = await resp.Content.ReadAsStreamAsync(ct);
@@ -447,7 +504,7 @@ public class Downloader
                     {
                         while (!handle.PauseTokenSource.IsPaused)
                         {
-                            var bytesRead = await stream.ReadAsync(buffer, ct);
+                            var bytesRead = await ReadWithStallWatchdogAsync(stream, buffer, stallCts, stallTimeout, ct);
                             if (bytesRead == 0)
                                 break;
 
@@ -483,18 +540,20 @@ public class Downloader
         CancellationToken cancellationToken)
     {
         const int chunkIndex = 0;
+        var stallTimeout = _settings.DefaultInactivityTimeout;
 
         handle.SetChunkStatus(chunkIndex, ChunkStatus.Downloading);
         try
         {
             // See the matching comment in DownloadChunkAsync: the pause wait must sit outside
             // pipeline.ExecuteAsync, on the download's own cancellationToken, never on the
-            // per-attempt `ct`, or a pause outlasting the per-attempt timeout trips
-            // TimeoutRejectedException, gets retried, and immediately re-hits the still-paused
-            // wait - a fast retry loop that burns every attempt while paused. This path has no
-            // Range support, so unlike a chunk, an attempt restarted after a pause always
-            // re-requests the whole body from byte 0; SetChunkBytesDownloaded rolls back whatever
-            // the abandoned attempt had credited so progress doesn't run ahead of the file.
+            // per-attempt `ct` or the stall watchdog's own linked token, or a pause outlasting
+            // the inactivity timeout trips TimeoutRejectedException, gets retried, and
+            // immediately re-hits the still-paused wait - a fast retry loop that burns every
+            // attempt while paused. This path has no Range support, so unlike a chunk, an attempt
+            // restarted after a pause always re-requests the whole body from byte 0;
+            // SetChunkBytesDownloaded rolls back whatever the abandoned attempt had credited so
+            // progress doesn't run ahead of the file.
             var completed = false;
             while (!completed)
             {
@@ -503,9 +562,12 @@ public class Downloader
 
                 await pipeline.ExecuteAsync(async ct =>
                 {
+                    using var stallCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                    stallCts.CancelAfter(stallTimeout);
+
                     var req = new HttpRequestMessage(HttpMethod.Get, uri);
 
-                    using var resp = await _client.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, ct);
+                    using var resp = await SendWithStallWatchdogAsync(req, stallCts, stallTimeout, ct);
                     resp.EnsureSuccessStatusCode();
 
                     await using var stream = await resp.Content.ReadAsStreamAsync(ct);
@@ -516,7 +578,7 @@ public class Downloader
                     {
                         while (!handle.PauseTokenSource.IsPaused)
                         {
-                            var bytesRead = await stream.ReadAsync(buffer, ct);
+                            var bytesRead = await ReadWithStallWatchdogAsync(stream, buffer, stallCts, stallTimeout, ct);
                             if (bytesRead == 0)
                             {
                                 completed = true;
@@ -564,6 +626,7 @@ public class Downloader
     {
         const int chunkIndex = 0;
         long offset = 0;
+        var stallTimeout = _settings.DefaultInactivityTimeout;
 
         handle.SetChunkStatus(chunkIndex, ChunkStatus.Downloading);
         try
@@ -577,9 +640,12 @@ public class Downloader
 
                 await pipeline.ExecuteAsync(async ct =>
                 {
+                    using var stallCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                    stallCts.CancelAfter(stallTimeout);
+
                     var req = new HttpRequestMessage(HttpMethod.Get, uri);
 
-                    using var resp = await _client.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, ct);
+                    using var resp = await SendWithStallWatchdogAsync(req, stallCts, stallTimeout, ct);
                     resp.EnsureSuccessStatusCode();
 
                     await using var stream = await resp.Content.ReadAsStreamAsync(ct);
@@ -589,7 +655,7 @@ public class Downloader
                     {
                         while (!handle.PauseTokenSource.IsPaused)
                         {
-                            var bytesRead = await stream.ReadAsync(buffer, ct);
+                            var bytesRead = await ReadWithStallWatchdogAsync(stream, buffer, stallCts, stallTimeout, ct);
                             if (bytesRead == 0)
                             {
                                 completed = true;
