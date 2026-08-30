@@ -159,6 +159,7 @@ internal sealed class ConsoleStatusPanel
             return $"[{id}] pending...";
 
         var speed = progress.SpeedBytesPerSecond is { } s ? $"{s:N0} B/s" : "-";
-        return $"[{id}] {progress.State,-10} {progress.BytesDownloaded:N0}/{progress.TotalBytes:N0} bytes @ {speed}";
+        var total = progress.TotalBytes > 0 ? $"{progress.TotalBytes:N0}" : "???";
+        return $"[{id}] {progress.State,-10} {progress.BytesDownloaded:N0}/{total} bytes @ {speed}";
     }
 }

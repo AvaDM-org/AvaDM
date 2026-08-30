@@ -174,14 +174,17 @@ internal sealed class DownloadDashboard
             return $"[{id}] pending...";
 
         var speed = progress.SpeedBytesPerSecond is { } s ? $"{s:N0} B/s" : "-";
-        return $"[{id}] {progress.State,-10} {progress.BytesDownloaded:N0}/{progress.TotalBytes:N0} bytes @ {speed}";
+        var total = progress.TotalBytes > 0 ? $"{progress.TotalBytes:N0}" : "???";
+        return $"[{id}] {progress.State,-10} {progress.BytesDownloaded:N0}/{total} bytes @ {speed}";
     }
 
     private static string FormatChunkLine(ChunkProgress chunk)
     {
         var percent = chunk.TotalBytes > 0 ? chunk.BytesDownloaded * 100.0 / chunk.TotalBytes : 0.0;
         var speed = chunk.Status == ChunkStatus.Downloading && chunk.SpeedBytesPerSecond is { } s ? $"{s:N0} B/s" : "-";
-        return $"    chunk {chunk.Index,-3} {chunk.Status,-11} {chunk.BytesDownloaded:N0}/{chunk.TotalBytes:N0} bytes ({percent:0.0}%) @ {speed} " +
-               $"[{chunk.StartByte:N0}-{chunk.EndByte:N0}]";
+        var total = chunk.TotalBytes > 0 ? $"{chunk.TotalBytes:N0}" : "???";
+        var endByte = chunk.EndByte >= chunk.StartByte ? $"{chunk.EndByte:N0}" : "???";
+        return $"    chunk {chunk.Index,-3} {chunk.Status,-11} {chunk.BytesDownloaded:N0}/{total} bytes ({percent:0.0}%) @ {speed} " +
+               $"[{chunk.StartByte:N0}-{endByte}]";
     }
 }
