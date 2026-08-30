@@ -61,7 +61,12 @@ public static class FormatHelpers
     /// <summary>Byte-range text for a chunk row, e.g. "[0 B-159.0 MB]". Uses the same dynamic
     /// unit formatting as <see cref="FormatBytes"/> on each end rather than raw byte counts, and
     /// keeps the <c>[start-end]</c> bracket convention from
-    /// <c>AvaDM.Console/DownloadDashboard.cs</c>'s <c>FormatChunkLine</c>.</summary>
+    /// <c>AvaDM.Console/DownloadDashboard.cs</c>'s <c>FormatChunkLine</c>. An <paramref name="endByte"/>
+    /// before <paramref name="startByte"/> is the sentinel a no-<c>Content-Length</c> download's
+    /// sole chunk starts with (see <c>Downloader</c>'s unknown-size fallback) - shown as "???"
+    /// rather than the misleading "0 B" <see cref="FormatBytes"/> would clamp a negative end to.</summary>
     public static string FormatByteRange(long startByte, long endByte) =>
-        $"[{FormatBytes(startByte)}-{FormatBytes(endByte)}]";
+        endByte < startByte
+            ? $"[{FormatBytes(startByte)}-???]"
+            : $"[{FormatBytes(startByte)}-{FormatBytes(endByte)}]";
 }

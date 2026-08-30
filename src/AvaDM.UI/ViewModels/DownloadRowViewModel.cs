@@ -78,6 +78,7 @@ public sealed partial class DownloadRowViewModel : ViewModelBase
     [NotifyPropertyChangedFor(nameof(SpeedText))]
     [NotifyPropertyChangedFor(nameof(EtaText))]
     [NotifyPropertyChangedFor(nameof(CanOpenDownload))]
+    [NotifyPropertyChangedFor(nameof(IsSizeUnknown))]
     [NotifyCanExecuteChangedFor(nameof(PauseCommand))]
     [NotifyCanExecuteChangedFor(nameof(ResumeCommand))]
     [NotifyCanExecuteChangedFor(nameof(CancelCommand))]
@@ -95,6 +96,7 @@ public sealed partial class DownloadRowViewModel : ViewModelBase
     [NotifyPropertyChangedFor(nameof(SpeedText))]
     [NotifyPropertyChangedFor(nameof(EtaText))]
     [NotifyPropertyChangedFor(nameof(CanOpenDownload))]
+    [NotifyPropertyChangedFor(nameof(IsSizeUnknown))]
     [NotifyCanExecuteChangedFor(nameof(PauseCommand))]
     [NotifyCanExecuteChangedFor(nameof(ResumeCommand))]
     [NotifyCanExecuteChangedFor(nameof(CancelCommand))]
@@ -111,6 +113,7 @@ public sealed partial class DownloadRowViewModel : ViewModelBase
     [NotifyPropertyChangedFor(nameof(ProgressPercent))]
     [NotifyPropertyChangedFor(nameof(BytesText))]
     [NotifyPropertyChangedFor(nameof(EtaText))]
+    [NotifyPropertyChangedFor(nameof(IsSizeUnknown))]
     private long _totalBytes;
 
     [ObservableProperty]
@@ -170,13 +173,22 @@ public sealed partial class DownloadRowViewModel : ViewModelBase
 
     public double ProgressPercent => TotalBytes > 0 ? BytesDownloaded * 100.0 / TotalBytes : 0.0;
 
-    public string BytesText => $"{FormatHelpers.FormatBytes(BytesDownloaded)} / {FormatHelpers.FormatBytes(TotalBytes)}";
+    /// <summary>True while a download is actively running but its total size isn't known yet -
+    /// a server that didn't report <c>Content-Length</c> (see <c>Downloader</c>'s unknown-size
+    /// fallback). <see cref="TotalBytes"/> is backfilled with the real size once the download
+    /// finishes, so this only applies mid-run. Drives the row's progress bar into indeterminate
+    /// mode instead of sitting stuck at 0%.</summary>
+    public bool IsSizeUnknown => HasActiveHandle && State == DownloadState.Running && TotalBytes <= 0;
+
+    public string BytesText => TotalBytes > 0
+        ? $"{FormatHelpers.FormatBytes(BytesDownloaded)} / {FormatHelpers.FormatBytes(TotalBytes)}"
+        : $"{FormatHelpers.FormatBytes(BytesDownloaded)} / ???";
 
     public string SpeedText => HasActiveHandle && State == DownloadState.Running
         ? FormatHelpers.FormatSpeed(SpeedBytesPerSecond)
         : "-";
 
-    public string EtaText => HasActiveHandle && State == DownloadState.Running
+    public string EtaText => HasActiveHandle && State == DownloadState.Running && TotalBytes > 0
         ? FormatHelpers.FormatEta(TotalBytes - BytesDownloaded, SpeedBytesPerSecond)
         : "-";
 
@@ -243,7 +255,11 @@ public sealed partial class DownloadRowViewModel : ViewModelBase
         // resume-time "jump to empty and back" from #10. Leaving the row's current display alone
         // until there's real data to show avoids that; a genuinely fresh download has nothing
         // worth preserving here anyway; since the row was just created at 0, this is a no-op.
-        if (handle.TotalBytes > 0)
+        // Gated on Chunks (populated by InitializeChunks right after HEAD, regardless of whether
+        // the size turned out to be known) rather than TotalBytes > 0 - a download whose server
+        // never reports Content-Length legitimately keeps TotalBytes at 0 while it runs, and that
+        // must not be mistaken for "HEAD hasn't come back yet".
+        if (handle.Chunks.Count > 0)
         {
             BytesDownloaded = handle.BytesDownloaded;
             TotalBytes = handle.TotalBytes;
