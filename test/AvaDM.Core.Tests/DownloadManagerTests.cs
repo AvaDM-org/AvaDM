@@ -240,6 +240,52 @@ public sealed class DownloadManagerTests : IDisposable
         Assert.Equal(payload.Length, record!.TotalBytes);
     }
 
+    /// <summary>Regression test for the inactivity-vs-attempt-duration timeout fix: a transfer
+    /// that keeps making progress must never be retried just for taking longer overall than
+    /// <see cref="DownloadSettings.DefaultInactivityTimeout"/> - only real silence should count.
+    /// LocalHttpServer drips the payload in 8 KB chunks with a fixed 10ms gap between them
+    /// (regardless of holdBody), so a big enough payload takes comfortably longer in total than
+    /// the timeout configured here while no single gap does. Before the fix, this download (which
+    /// - like every LocalHttpServer response - has no Accept-Ranges, so it runs through the
+    /// non-resumable whole-file path) would have restarted from byte 0 on every timeout and never
+    /// finished.</summary>
+    [Fact]
+    public async Task Download_SlowButSteadyTransfer_CompletesInOneAttemptDespitePassingInactivityTimeout()
+    {
+        var payload = CreatePayload(300 * 1024); // ~38 x 8KB writes x 10ms gap =~ 380ms total
+        await using var server = await LocalHttpServer.StartAsync(payload, holdBody: false);
+        var destination = Path.Combine(_tempDirectory, "slow-steady.bin");
+        using var client = CreateHttpClient();
+        var manager = new DownloadManager(client, new DownloadSettings
+        {
+            RepositoryPath = DatabasePath,
+            DefaultDownloadDirectory = _tempDirectory,
+            DefaultMaxRetryAttempts = 1,
+            DefaultRetryBaseDelay = TimeSpan.Zero,
+            // Shorter than the ~380ms total transfer time, but far longer than the ~10ms gap
+            // between any two writes - a flat attempt-duration timeout of this length would have
+            // fired partway through; a stall/inactivity timeout should not.
+            DefaultInactivityTimeout = TimeSpan.FromMilliseconds(150),
+        });
+
+        var added = await manager.AddDownloadAsync(server.Uri, destination);
+        Assert.True(added.Success);
+        var handle = added.Handle!;
+
+        var start = DateTime.UtcNow;
+        await handle.Completion;
+        var elapsed = DateTime.UtcNow - start;
+
+        Assert.Equal(DownloadState.Completed, handle.State);
+        Assert.True(elapsed > TimeSpan.FromMilliseconds(150),
+            $"Expected the transfer to genuinely take longer than the inactivity timeout, took {elapsed}.");
+        Assert.Equal(payload, await File.ReadAllBytesAsync(destination));
+
+        // 1 HEAD + 1 GET - a retry (from an inactivity timeout misfiring) would show up as a
+        // second GET connection.
+        Assert.Equal(2, server.ConnectionCount);
+    }
+
     [Fact]
     public async Task FailedDownload_AutoRetries_UpToConfiguredLimitThenStops()
     {
@@ -326,7 +372,7 @@ public sealed class DownloadManagerTests : IDisposable
             DefaultDownloadDirectory = _tempDirectory,
             DefaultMaxRetryAttempts = 1,
             DefaultRetryBaseDelay = TimeSpan.Zero,
-            DefaultPerAttemptTimeout = TimeSpan.FromSeconds(5)
+            DefaultInactivityTimeout = TimeSpan.FromSeconds(5)
         });
 
     private HttpClient CreateHttpClient() => new() { Timeout = Timeout.InfiniteTimeSpan };
@@ -395,6 +441,11 @@ public sealed class DownloadManagerTests : IDisposable
 
         public Uri Uri { get; }
         public Task GetHeadersSent => _getHeadersSent.Task;
+
+        /// <summary>Total TCP connections accepted so far (one per HEAD or GET - every response
+        /// sends <c>Connection: close</c>). Used to detect a retried/restarted request: a HEAD
+        /// plus exactly one GET is 2, a retried GET would push it to 3+.</summary>
+        public int ConnectionCount => _connections.Count;
 
         public static Task<LocalHttpServer> StartAsync(byte[] payload, bool holdBody, bool omitContentLength = false) =>
             Task.FromResult(new LocalHttpServer(payload, holdBody, omitContentLength));
