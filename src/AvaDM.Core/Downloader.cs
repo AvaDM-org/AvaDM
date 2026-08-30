@@ -3,6 +3,7 @@ using System.Buffers.Binary;
 using System.Net.Http.Headers;
 using Microsoft.Win32.SafeHandles;
 using Polly;
+using Polly.Timeout;
 
 namespace AvaDM.Core;
 
@@ -97,17 +98,14 @@ public class Downloader
         var pipeline = ChunkResiliencePipelineFactory.Create(
             _settings.DefaultMaxRetryAttempts,
             _settings.DefaultRetryBaseDelay,
-            _settings.DefaultPerAttemptTimeout,
             onRetry: (attempt, delay, ex) =>
                 handle.LogDiagnostic($"Request failed (attempt {attempt}), retrying in {delay.TotalSeconds:0.0}s: {ex?.Message}"));
 
         var msg = new HttpRequestMessage(HttpMethod.Head, uri);
         var headResponse = await _client.SendAsync(msg, cancellationToken);
 
-        long totalSize = headResponse.Content.Headers.ContentLength
-                         ?? throw new InvalidOperationException("Server did not return a Content-Length header.");
+        long? contentLength = headResponse.Content.Headers.ContentLength;
         bool supportsRanges = headResponse.Headers.AcceptRanges.Contains("bytes");
-        handle.TotalBytes = totalSize;
 
         var directory = Path.GetDirectoryName(destinationPath);
         if (!string.IsNullOrEmpty(directory))
@@ -115,19 +113,49 @@ public class Downloader
 
         var workingPath = destinationPath + WorkingFileSuffix;
 
+        if (contentLength is null)
+        {
+            // No size to split on, preallocate, or place a footer at - this is always a single,
+            // non-resumable stream, the same way the no-Range-support fallback below is, and for
+            // largely the same reason. Unlike that fallback, there's no reserved footer region to
+            // checkpoint into (the working file's length just *is* the payload length, growing as
+            // it downloads), so no footer is written at all; a crash leaves a footer-less .avadm,
+            // which TryReadResumeFooterAsync below already treats as "start fresh".
+            handle.Log("Server did not report a size for this download; downloading as a single, non-resumable stream.");
+            var fileHandle = OpenFreshWorkingFile(workingPath, requiredLength: 0);
+            long finalBytes;
+            try
+            {
+                handle.InitializeChunks([(0, -1)]);
+                finalBytes = await DownloadWholeFileUnknownSizeAsync(fileHandle, uri, handle, pipeline, cancellationToken);
+            }
+            finally
+            {
+                fileHandle.Dispose();
+            }
+
+            handle.FinalizeUnknownSizeDownload(finalBytes);
+            handle.Log($"Download complete ({finalBytes} bytes).");
+            File.Move(workingPath, destinationPath, overwrite: true);
+            return;
+        }
+
+        long size = contentLength.Value;
+        handle.TotalBytes = size;
+
         if (!supportsRanges)
         {
             // A whole-file download re-requests the entire body from scratch on every attempt,
             // so it can never resume - any prior .avadm for this destination is simply replaced.
             handle.Log("Server does not support range requests; falling back to a single sequential download.");
             var footerSize = DownloadFooter.ComputeSize(uri, 1);
-            var fileHandle = OpenFreshWorkingFile(workingPath, totalSize + footerSize);
+            var fileHandle = OpenFreshWorkingFile(workingPath, size + footerSize);
             try
             {
-                handle.InitializeChunks([(0, totalSize - 1)]);
+                handle.InitializeChunks([(0, size - 1)]);
                 await RunWithFooterCheckpointingAsync(
-                    fileHandle, uri, totalSize, resumable: false, handle,
-                    ct => DownloadWholeFileAsync(fileHandle, uri, totalSize, handle, pipeline, ct),
+                    fileHandle, uri, size, resumable: false, handle,
+                    ct => DownloadWholeFileAsync(fileHandle, uri, size, handle, pipeline, ct),
                     cancellationToken);
             }
             finally
@@ -135,11 +163,11 @@ public class Downloader
                 fileHandle.Dispose();
             }
 
-            await FinalizeAsync(workingPath, destinationPath, totalSize);
+            await FinalizeAsync(workingPath, destinationPath, size);
             return;
         }
 
-        var resumeFooter = await TryReadResumeFooterAsync(workingPath, uri, totalSize, handle, cancellationToken);
+        var resumeFooter = await TryReadResumeFooterAsync(workingPath, uri, size, handle, cancellationToken);
 
         SafeFileHandle rangedFileHandle;
         (long Start, long End)[] ranges;
@@ -148,24 +176,24 @@ public class Downloader
         {
             var candidateRanges = resumeFooter.Chunks.Select(c => (c.Start, c.End)).ToArray();
             var footerSize = DownloadFooter.ComputeSize(uri, candidateRanges.Length);
-            var reopened = TryOpenResumableWorkingFile(workingPath, totalSize + footerSize, handle);
+            var reopened = TryOpenResumableWorkingFile(workingPath, size + footerSize, handle);
             if (reopened is not null)
             {
                 rangedFileHandle = reopened;
                 ranges = candidateRanges;
                 handle.InitializeChunksFromFooter(resumeFooter.Chunks);
                 var alreadyDownloaded = resumeFooter.Chunks.Sum(c => c.BytesDownloaded);
-                handle.Log($"Resuming '{destinationPath}': {alreadyDownloaded} of {totalSize} bytes already on disk.");
+                handle.Log($"Resuming '{destinationPath}': {alreadyDownloaded} of {size} bytes already on disk.");
             }
             else
             {
-                (rangedFileHandle, ranges) = OpenFreshChunkedWorkingFile(uri, workingPath, totalSize, options.ChunkCount!.Value);
+                (rangedFileHandle, ranges) = OpenFreshChunkedWorkingFile(uri, workingPath, size, options.ChunkCount!.Value);
                 handle.InitializeChunks(ranges);
             }
         }
         else
         {
-            (rangedFileHandle, ranges) = OpenFreshChunkedWorkingFile(uri, workingPath, totalSize, options.ChunkCount!.Value);
+            (rangedFileHandle, ranges) = OpenFreshChunkedWorkingFile(uri, workingPath, size, options.ChunkCount!.Value);
             handle.InitializeChunks(ranges);
         }
 
@@ -176,7 +204,7 @@ public class Downloader
                 chunkTasks[i] = DownloadChunkAsync(rangedFileHandle, uri, i, ranges[i].Start, ranges[i].End, handle, pipeline, cancellationToken);
 
             await RunWithFooterCheckpointingAsync(
-                rangedFileHandle, uri, totalSize, resumable: true, handle,
+                rangedFileHandle, uri, size, resumable: true, handle,
                 _ => Task.WhenAll(chunkTasks),
                 cancellationToken);
         }
@@ -185,7 +213,7 @@ public class Downloader
             rangedFileHandle.Dispose();
         }
 
-        await FinalizeAsync(workingPath, destinationPath, totalSize);
+        await FinalizeAsync(workingPath, destinationPath, size);
     }
 
     private static (long Start, long End)[] ComputeRanges(long totalSize, int chunkCount)
@@ -367,6 +395,60 @@ public class Downloader
         return Task.CompletedTask;
     }
 
+    /// <summary>Sends <paramref name="request"/> on <paramref name="stallCts"/>'s token, so a
+    /// connect/response-headers phase that never gets anywhere is cancelled after
+    /// <paramref name="stallTimeout"/> - converted to <see cref="TimeoutRejectedException"/>
+    /// (handled by the resilience pipeline's retry policy) rather than a bare cancellation, which
+    /// would otherwise be indistinguishable from <paramref name="cancellationToken"/> firing for
+    /// a real pause/cancel and must never be retried. Rearms the watchdog on success, so the
+    /// subsequent body read starts with a fresh inactivity budget.</summary>
+    private async Task<HttpResponseMessage> SendWithStallWatchdogAsync(
+        HttpRequestMessage request,
+        CancellationTokenSource stallCts,
+        TimeSpan stallTimeout,
+        CancellationToken cancellationToken)
+    {
+        HttpResponseMessage response;
+        try
+        {
+            response = await _client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, stallCts.Token);
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            throw new TimeoutRejectedException($"No response after {stallTimeout.TotalSeconds:0}s of inactivity.");
+        }
+
+        stallCts.CancelAfter(stallTimeout);
+        return response;
+    }
+
+    /// <summary>Same idea as <see cref="SendWithStallWatchdogAsync"/>, for one body read: only a
+    /// read that returns nothing at all for <paramref name="stallTimeout"/> counts as stalled -
+    /// rearms on any non-zero read, so a transfer that's merely slow-but-steady is never
+    /// penalized for its total duration, only for going silent.</summary>
+    private static async Task<int> ReadWithStallWatchdogAsync(
+        Stream stream,
+        Memory<byte> buffer,
+        CancellationTokenSource stallCts,
+        TimeSpan stallTimeout,
+        CancellationToken cancellationToken)
+    {
+        int bytesRead;
+        try
+        {
+            bytesRead = await stream.ReadAsync(buffer, stallCts.Token);
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            throw new TimeoutRejectedException($"No data received for {stallTimeout.TotalSeconds:0}s.");
+        }
+
+        if (bytesRead > 0)
+            stallCts.CancelAfter(stallTimeout);
+
+        return bytesRead;
+    }
+
     private async Task DownloadChunkAsync(
         SafeFileHandle fileHandle,
         Uri uri,
@@ -387,29 +469,32 @@ public class Downloader
         }
 
         long currentOffset = start + alreadyDownloaded;
+        var stallTimeout = _settings.DefaultInactivityTimeout;
 
         handle.SetChunkStatus(chunkIndex, ChunkStatus.Downloading);
         try
         {
             // The wait for resume deliberately sits outside pipeline.ExecuteAsync, on the
             // download's own (not time-boxed) cancellationToken - never on the per-attempt `ct`
-            // Polly hands the delegate below. That `ct` is cancelled by AddTimeout on a fixed
-            // wall clock regardless of what's being awaited, so a pause held inside it would
-            // eventually trip TimeoutRejectedException, get retried, and immediately hit the
-            // still-paused wait again - a fast retry loop that burns every attempt while paused.
-            // Instead, a pause request ends the current attempt cleanly (IsPaused check below,
-            // no exception raised) and the next attempt's Range request just continues from
-            // wherever currentOffset landed, once resumed.
+            // Polly hands the delegate below, or the stall watchdog's own linked token. Either of
+            // those firing mid-pause would trip TimeoutRejectedException, get retried, and
+            // immediately hit the still-paused wait again - a fast retry loop that burns every
+            // attempt while paused. Instead, a pause request ends the current attempt cleanly
+            // (IsPaused check below, no exception raised) and the next attempt's Range request
+            // just continues from wherever currentOffset landed, once resumed.
             while (currentOffset <= end)
             {
                 await handle.PauseTokenSource.WaitWhilePausedAsync(cancellationToken);
 
                 await pipeline.ExecuteAsync(async ct =>
                 {
+                    using var stallCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                    stallCts.CancelAfter(stallTimeout);
+
                     var req = new HttpRequestMessage(HttpMethod.Get, uri);
                     req.Headers.Range = new RangeHeaderValue(currentOffset, end);
 
-                    using var resp = await _client.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, ct);
+                    using var resp = await SendWithStallWatchdogAsync(req, stallCts, stallTimeout, ct);
                     resp.EnsureSuccessStatusCode();
 
                     await using var stream = await resp.Content.ReadAsStreamAsync(ct);
@@ -419,7 +504,7 @@ public class Downloader
                     {
                         while (!handle.PauseTokenSource.IsPaused)
                         {
-                            var bytesRead = await stream.ReadAsync(buffer, ct);
+                            var bytesRead = await ReadWithStallWatchdogAsync(stream, buffer, stallCts, stallTimeout, ct);
                             if (bytesRead == 0)
                                 break;
 
@@ -455,18 +540,20 @@ public class Downloader
         CancellationToken cancellationToken)
     {
         const int chunkIndex = 0;
+        var stallTimeout = _settings.DefaultInactivityTimeout;
 
         handle.SetChunkStatus(chunkIndex, ChunkStatus.Downloading);
         try
         {
             // See the matching comment in DownloadChunkAsync: the pause wait must sit outside
             // pipeline.ExecuteAsync, on the download's own cancellationToken, never on the
-            // per-attempt `ct`, or a pause outlasting the per-attempt timeout trips
-            // TimeoutRejectedException, gets retried, and immediately re-hits the still-paused
-            // wait - a fast retry loop that burns every attempt while paused. This path has no
-            // Range support, so unlike a chunk, an attempt restarted after a pause always
-            // re-requests the whole body from byte 0; SetChunkBytesDownloaded rolls back whatever
-            // the abandoned attempt had credited so progress doesn't run ahead of the file.
+            // per-attempt `ct` or the stall watchdog's own linked token, or a pause outlasting
+            // the inactivity timeout trips TimeoutRejectedException, gets retried, and
+            // immediately re-hits the still-paused wait - a fast retry loop that burns every
+            // attempt while paused. This path has no Range support, so unlike a chunk, an attempt
+            // restarted after a pause always re-requests the whole body from byte 0;
+            // SetChunkBytesDownloaded rolls back whatever the abandoned attempt had credited so
+            // progress doesn't run ahead of the file.
             var completed = false;
             while (!completed)
             {
@@ -475,9 +562,12 @@ public class Downloader
 
                 await pipeline.ExecuteAsync(async ct =>
                 {
+                    using var stallCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                    stallCts.CancelAfter(stallTimeout);
+
                     var req = new HttpRequestMessage(HttpMethod.Get, uri);
 
-                    using var resp = await _client.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, ct);
+                    using var resp = await SendWithStallWatchdogAsync(req, stallCts, stallTimeout, ct);
                     resp.EnsureSuccessStatusCode();
 
                     await using var stream = await resp.Content.ReadAsStreamAsync(ct);
@@ -488,7 +578,7 @@ public class Downloader
                     {
                         while (!handle.PauseTokenSource.IsPaused)
                         {
-                            var bytesRead = await stream.ReadAsync(buffer, ct);
+                            var bytesRead = await ReadWithStallWatchdogAsync(stream, buffer, stallCts, stallTimeout, ct);
                             if (bytesRead == 0)
                             {
                                 completed = true;
@@ -518,5 +608,82 @@ public class Downloader
         }
 
         handle.Log($"Download complete ({totalSize} bytes).");
+    }
+
+    /// <summary>Same shape as <see cref="DownloadWholeFileAsync"/> (single sequential stream,
+    /// no Range support assumed, a pause always restarts the whole body from byte 0 on resume),
+    /// but for the case where the server never reported a size at all: there's no
+    /// <paramref name="fileHandle"/> preallocation and nothing to compare progress against while
+    /// running, so it just streams until the response ends and returns however many bytes that
+    /// turned out to be, for the caller to backfill into the handle via
+    /// <see cref="DownloadHandle.FinalizeUnknownSizeDownload"/>.</summary>
+    private async Task<long> DownloadWholeFileUnknownSizeAsync(
+        SafeFileHandle fileHandle,
+        Uri uri,
+        DownloadHandle handle,
+        ResiliencePipeline pipeline,
+        CancellationToken cancellationToken)
+    {
+        const int chunkIndex = 0;
+        long offset = 0;
+        var stallTimeout = _settings.DefaultInactivityTimeout;
+
+        handle.SetChunkStatus(chunkIndex, ChunkStatus.Downloading);
+        try
+        {
+            var completed = false;
+            while (!completed)
+            {
+                await handle.PauseTokenSource.WaitWhilePausedAsync(cancellationToken);
+                offset = 0;
+                handle.SetChunkBytesDownloaded(chunkIndex, 0);
+
+                await pipeline.ExecuteAsync(async ct =>
+                {
+                    using var stallCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                    stallCts.CancelAfter(stallTimeout);
+
+                    var req = new HttpRequestMessage(HttpMethod.Get, uri);
+
+                    using var resp = await SendWithStallWatchdogAsync(req, stallCts, stallTimeout, ct);
+                    resp.EnsureSuccessStatusCode();
+
+                    await using var stream = await resp.Content.ReadAsStreamAsync(ct);
+
+                    var buffer = ArrayPool<byte>.Shared.Rent(BufferSize);
+                    try
+                    {
+                        while (!handle.PauseTokenSource.IsPaused)
+                        {
+                            var bytesRead = await ReadWithStallWatchdogAsync(stream, buffer, stallCts, stallTimeout, ct);
+                            if (bytesRead == 0)
+                            {
+                                completed = true;
+                                break;
+                            }
+
+                            await handle.SpeedLimiter.WaitForTokensAsync(bytesRead, ct);
+
+                            await RandomAccess.WriteAsync(fileHandle, buffer.AsMemory(0, bytesRead), offset, ct);
+                            offset += bytesRead;
+                            handle.AddChunkBytesDownloaded(chunkIndex, bytesRead);
+                        }
+                    }
+                    finally
+                    {
+                        ArrayPool<byte>.Shared.Return(buffer);
+                    }
+                }, cancellationToken);
+            }
+
+            handle.SetChunkStatus(chunkIndex, ChunkStatus.Completed);
+        }
+        catch
+        {
+            handle.SetChunkStatus(chunkIndex, ChunkStatus.Failed);
+            throw;
+        }
+
+        return offset;
     }
 }

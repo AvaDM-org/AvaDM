@@ -49,14 +49,16 @@
                                FontSize="{StaticResource LabelSmFontSize}"
                                Foreground="{DynamicResource TextSecondaryBrush}"
                                TextTrimming="CharacterEllipsis" />
-                    <ProgressBar Value="{Binding ProgressPercent}" Minimum="0" Maximum="100" />
+                    <ProgressBar Value="{Binding ProgressPercent}" Minimum="0" Maximum="100"
+                                 IsIndeterminate="{Binding IsSizeUnknown}" />
                     <Grid ColumnDefinitions="*,Auto">
                         <TextBlock Grid.Column="0" Text="{Binding BytesText}"
                                    FontFamily="{StaticResource MonoFontFamily}"
                                    FontSize="{StaticResource NumericMdFontSize}"
                                    FontWeight="{StaticResource NumericMdFontWeight}"
                                    Foreground="{DynamicResource TextSecondaryBrush}" />
-                        <TextBlock Grid.Column="1" Text="{Binding ProgressPercent, StringFormat={}{0:N0}%}"
+                        <TextBlock Grid.Column="1" IsVisible="{Binding !IsSizeUnknown}"
+                                   Text="{Binding ProgressPercent, StringFormat={}{0:N0}%}"
                                    FontFamily="{StaticResource MonoFontFamily}"
                                    FontSize="{StaticResource NumericMdFontSize}"
                                    FontWeight="{StaticResource NumericMdFontWeight}"
@@ -149,6 +151,7 @@
                                                VerticalAlignment="Center" />
                                     <ProgressBar Grid.Column="1" Classes="chunk"
                                                  Value="{Binding ProgressPercent}" Minimum="0" Maximum="100"
+                                                 IsIndeterminate="{Binding IsSizeUnknown}"
                                                  VerticalAlignment="Center" />
                                     <TextBlock Grid.Column="2" Text="{Binding SpeedText}"
                                                FontFamily="{StaticResource MonoFontFamily}"

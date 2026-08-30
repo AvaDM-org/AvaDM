@@ -160,9 +160,10 @@ async void Start(string[] parts)
         if (result.Conflict?.HasConflict == true)
         {
             var existing = result.Conflict.ExistingRecord;
+            var existingTotal = existing!.TotalBytes > 0 ? $"{existing.TotalBytes:N0}" : "???";
             dashboard.Log(
-                $"Conflict: '{uri}' is already downloading to '{existing!.DestinationPath}' " +
-                $"(state: {existing.State}, {existing.BytesDownloaded:N0}/{existing.TotalBytes:N0} bytes). " +
+                $"Conflict: '{uri}' is already downloading to '{existing.DestinationPath}' " +
+                $"(state: {existing.State}, {existing.BytesDownloaded:N0}/{existingTotal} bytes). " +
                 $"Retry with --resume, --overwrite, or --rename <newPath>.");
         }
         else
@@ -268,6 +269,7 @@ void Status(string[] parts)
         }
 
         var handle = entry.Handle;
-        dashboard.Log($"[{id}] {handle.State} {handle.BytesDownloaded:N0}/{handle.TotalBytes:N0} bytes ({handle.DestinationPath})");
+        var total = handle.TotalBytes > 0 ? $"{handle.TotalBytes:N0}" : "???";
+        dashboard.Log($"[{id}] {handle.State} {handle.BytesDownloaded:N0}/{total} bytes ({handle.DestinationPath})");
     }
 }

@@ -81,12 +81,13 @@
                     </Grid>
 
                     <Grid ColumnDefinitions="*,Auto" ColumnSpacing="{StaticResource SpaceSm}">
-                        <TextBlock Grid.Column="0" Text="Per-attempt timeout (seconds)"
+                        <TextBlock Grid.Column="0" Text="Inactivity timeout (seconds)"
+                                   ToolTip.Tip="How long an attempt can go without receiving any data before it's retried. Not a cap on total download time - a slow-but-steady transfer is unaffected, only a stalled one."
                                    FontSize="{StaticResource BodyMdFontSize}"
                                    Foreground="{DynamicResource TextSecondaryBrush}"
                                    VerticalAlignment="Center" />
                         <TextBox Grid.Column="1"
-                                 Text="{Binding PerAttemptTimeoutSecondsInput, Mode=TwoWay}"
+                                 Text="{Binding InactivityTimeoutSecondsInput, Mode=TwoWay}"
                                  Width="{StaticResource SettingsNumericFieldWidth}" />
                     </Grid>
 

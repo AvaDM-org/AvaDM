@@ -220,6 +220,19 @@ public sealed class DownloadHandle
         ReportProgress(force: true);
     }
 
+    /// <summary>Backfills the real size once a download that started with an unknown
+    /// <see cref="TotalBytes"/> (no <c>Content-Length</c> header - see <see cref="Downloader"/>'s
+    /// unknown-size fallback) finishes and the true byte count is finally known. Updates both the
+    /// aggregate total and the sole chunk's end byte together so a UI showing "???" while the
+    /// download runs flips to a real size/100% on completion rather than staying unknown forever.</summary>
+    internal void FinalizeUnknownSizeDownload(long finalTotalBytes)
+    {
+        TotalBytes = finalTotalBytes;
+        if (_chunkTrackers.Length > 0)
+            _chunkTrackers[0].SetEnd(finalTotalBytes - 1);
+        ReportProgress(force: true);
+    }
+
     /// <summary>Records bytes written for one chunk and folds them into the download's overall
     /// total in a single call, so per-chunk and aggregate progress never drift apart.</summary>
     internal void AddChunkBytesDownloaded(int chunkIndex, int byteCount)
@@ -277,6 +290,7 @@ public sealed class DownloadHandle
     private sealed class ChunkTracker(long start, long end, long initialBytesDownloaded = 0, ChunkStatus initialStatus = ChunkStatus.Pending)
     {
         private readonly SpeedTracker _speedTracker = new();
+        private long _end = end;
         private long _bytesDownloaded = initialBytesDownloaded;
         private volatile int _status = (int)initialStatus;
 
@@ -284,10 +298,15 @@ public sealed class DownloadHandle
         public long SetBytes(long value) => Interlocked.Exchange(ref _bytesDownloaded, value);
         public void SetStatus(ChunkStatus status) => _status = (int)status;
 
+        /// <summary>Corrects the end byte once it becomes known - see
+        /// <see cref="FinalizeUnknownSizeDownload"/>. The byte range is otherwise fixed at
+        /// construction; this is the one exception.</summary>
+        public void SetEnd(long value) => Interlocked.Exchange(ref _end, value);
+
         public ChunkProgress ToSnapshot(int index)
         {
             var bytes = Interlocked.Read(ref _bytesDownloaded);
-            return new(index, start, end, bytes, (ChunkStatus)_status, _speedTracker.AddSample(bytes));
+            return new(index, start, Interlocked.Read(ref _end), bytes, (ChunkStatus)_status, _speedTracker.AddSample(bytes));
         }
     }
 }

@@ -20,12 +20,14 @@ public sealed partial class ChunkRowViewModel : ViewModelBase
     [NotifyPropertyChangedFor(nameof(TotalBytes))]
     [NotifyPropertyChangedFor(nameof(ProgressPercent))]
     [NotifyPropertyChangedFor(nameof(ByteRangeText))]
+    [NotifyPropertyChangedFor(nameof(IsSizeUnknown))]
     private long _startByte;
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(TotalBytes))]
     [NotifyPropertyChangedFor(nameof(ProgressPercent))]
     [NotifyPropertyChangedFor(nameof(ByteRangeText))]
+    [NotifyPropertyChangedFor(nameof(IsSizeUnknown))]
     private long _endByte;
 
     [ObservableProperty]
@@ -36,6 +38,7 @@ public sealed partial class ChunkRowViewModel : ViewModelBase
     [NotifyPropertyChangedFor(nameof(StatusText))]
     [NotifyPropertyChangedFor(nameof(StatusChipClass))]
     [NotifyPropertyChangedFor(nameof(SpeedText))]
+    [NotifyPropertyChangedFor(nameof(IsSizeUnknown))]
     private ChunkStatus _status;
 
     [ObservableProperty]
@@ -47,6 +50,11 @@ public sealed partial class ChunkRowViewModel : ViewModelBase
     public long TotalBytes => EndByte - StartByte + 1;
 
     public double ProgressPercent => TotalBytes > 0 ? BytesDownloaded * 100.0 / TotalBytes : 0.0;
+
+    /// <summary>True while this chunk is downloading but its end byte is still the unknown-size
+    /// sentinel (see <c>Downloader</c>'s unknown-size fallback and <c>DownloadHandle.ChunkTracker</c>) -
+    /// drives this chunk's progress bar into indeterminate mode instead of sitting at 0%.</summary>
+    public bool IsSizeUnknown => Status == ChunkStatus.Downloading && TotalBytes <= 0;
 
     public string ByteRangeText => FormatHelpers.FormatByteRange(StartByte, EndByte);
 
