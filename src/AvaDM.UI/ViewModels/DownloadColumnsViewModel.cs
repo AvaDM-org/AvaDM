@@ -30,8 +30,9 @@ public sealed partial class DownloadColumnsViewModel : ViewModelBase
         (DownloadColumnId.Size, "Size", true, 90),
         (DownloadColumnId.Created, "Created", true, 130),
         (DownloadColumnId.Speed, "Speed", true, 150),
-        (DownloadColumnId.ProgressPercent, "Progress %", true, 80),
-        (DownloadColumnId.ProgressSize, "Progress size", true, 140),
+        (DownloadColumnId.ProgressPercent, "Progress %", true, 90),
+        (DownloadColumnId.ProgressSize, "Progress size", true, 150),
+        (DownloadColumnId.Status, "Status", true, 110),
     ];
 
     private static readonly DownloadColumnId[] DefaultOrder =
@@ -43,6 +44,7 @@ public sealed partial class DownloadColumnsViewModel : ViewModelBase
         DownloadColumnId.Created,
         DownloadColumnId.Type,
         DownloadColumnId.ProgressSize,
+        DownloadColumnId.Status,
     ];
 
     private static readonly HashSet<DownloadColumnId> DefaultVisible =

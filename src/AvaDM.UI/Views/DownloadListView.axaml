@@ -81,13 +81,8 @@
                 </Grid>
             </Border>
 
-            <ScrollViewer Grid.Row="2" Margin="{StaticResource PanelPadding}">
+            <ScrollViewer Grid.Row="2">
                 <ItemsControl ItemsSource="{Binding FilteredDownloads}">
-                    <ItemsControl.ItemsPanel>
-                        <ItemsPanelTemplate>
-                            <StackPanel Spacing="{StaticResource SpaceSm}" />
-                        </ItemsPanelTemplate>
-                    </ItemsControl.ItemsPanel>
                     <ItemsControl.ItemTemplate>
                         <DataTemplate x:DataType="vm:DownloadRowViewModel">
                             <views:DownloadRowView />

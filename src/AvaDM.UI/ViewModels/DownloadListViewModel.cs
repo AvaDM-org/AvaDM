@@ -224,7 +224,7 @@ public sealed partial class DownloadListViewModel : ViewModelBase, IDisposable
         }
 
         var row = new DownloadRowViewModel(
-            _downloadManager, record, handle, RequestRemove, RequestCancel, ShowToast, _getDoubleClickAction);
+            _downloadManager, Columns, record, handle, RequestRemove, RequestCancel, ShowToast, _getDoubleClickAction);
         _allRows.Add(row);
         TrackRow(row);
         ApplyFilter();
@@ -249,6 +249,7 @@ public sealed partial class DownloadListViewModel : ViewModelBase, IDisposable
 
         row.PropertyChanged -= OnRowPropertyChanged;
         row.Detach();
+        row.Release();
         _allRows.Remove(row);
         FilteredDownloads.Remove(row);
         RaiseDownloadsChanged();
@@ -281,6 +282,7 @@ public sealed partial class DownloadListViewModel : ViewModelBase, IDisposable
                 {
                     var newRow = new DownloadRowViewModel(
                         _downloadManager,
+                        Columns,
                         record,
                         _downloadManager.GetActiveHandle(record.Id),
                         RequestRemove,
@@ -352,6 +354,7 @@ public sealed partial class DownloadListViewModel : ViewModelBase, IDisposable
             DownloadColumnId.Speed => (a, b) => Nullable.Compare(a.SpeedBytesPerSecond, b.SpeedBytesPerSecond),
             DownloadColumnId.ProgressPercent => (a, b) => a.ProgressPercent.CompareTo(b.ProgressPercent),
             DownloadColumnId.ProgressSize => (a, b) => a.BytesDownloaded.CompareTo(b.BytesDownloaded),
+            DownloadColumnId.Status => (a, b) => a.DisplayStatus.CompareTo(b.DisplayStatus),
             _ => (a, b) => a.CreatedAt.CompareTo(b.CreatedAt),
         };
 
@@ -379,5 +382,10 @@ public sealed partial class DownloadListViewModel : ViewModelBase, IDisposable
     {
         _reconcileTimer.Stop();
         _searchDebounceTimer.Stop();
+        foreach (var row in _allRows)
+        {
+            row.Detach();
+            row.Release();
+        }
     }
 }

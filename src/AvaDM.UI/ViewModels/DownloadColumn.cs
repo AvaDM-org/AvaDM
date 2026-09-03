@@ -19,6 +19,7 @@ public enum DownloadColumnId
     Speed,
     ProgressPercent,
     ProgressSize,
+    Status,
 }
 
 /// <summary>Which sort marker (if any) a column header shows.</summary>

@@ -135,7 +135,7 @@ public sealed class DownloadColumnsViewModelTests : IDisposable
         var (order, visible, sort, ascending) = DownloadColumnsViewModel.ParseLayout("{ not json");
 
         Assert.Equal(DownloadColumnId.Name, order[0]);
-        Assert.Equal(7, order.Count);
+        Assert.Equal(8, order.Count);
         Assert.Contains(DownloadColumnId.Size, visible);
         Assert.DoesNotContain(DownloadColumnId.Type, visible);
         Assert.Equal(DownloadColumnId.Created, sort);
@@ -156,7 +156,7 @@ public sealed class DownloadColumnsViewModelTests : IDisposable
 
         Assert.Equal(DownloadColumnId.Name, order[0]);
         Assert.Equal(DownloadColumnId.Speed, order[1]);
-        Assert.Equal(7, order.Count);
+        Assert.Equal(8, order.Count);
         Assert.Equal(order.Distinct().Count(), order.Count);
         Assert.Equal(DownloadColumnId.Speed, sort);
         Assert.True(ascending);
