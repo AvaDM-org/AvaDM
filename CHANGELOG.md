@@ -33,6 +33,9 @@ _Accumulating several PRs; the release date and `v1.4.0` tag are set once the ba
   - **One progress bar per download, no expander.** Instead of expanding a row to see each
     connection, the single progress bar now fills unevenly — each connection fills its own part of
     it. The row shows the bar only while the download is active.
+  - **The per-download speed limit moved into the Speed column** (it used to live in the expanded
+    row): for a running download the Speed cell shows the current speed and the active limit, and
+    clicking it opens the limit editor.
   - The old All/Active/Completed/Failed filter tabs are gone; sort and search replace them.
 - **The Add Download form now has a separate "File name" field.** Typing a link fills it in with
   the name derived from the URL (the same name the engine would have used), and it stays editable,
