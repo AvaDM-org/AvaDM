@@ -65,9 +65,10 @@
     </UserControl.Styles>
 
     <!-- Two-bar toolbar + columned table (docs/design.md; issue #19). Bar 1: search, the
-         advanced-add "+" button, and the settings gear (the quick-add link box and the
-         multi-select trash land here in later commits). Bar 2: the sortable column header,
-         built from DownloadColumnsViewModel so a sort/reorder/show-hide reflows the rows below. -->
+         advanced-add "+" button, a quick-add link box (clipboard-paste icon inside it, start
+         button after it), the multi-select trash icon, and the settings gear. Bar 2: the
+         sortable column header, built from DownloadColumnsViewModel so a sort/reorder/show-hide
+         reflows the rows below. -->
     <Panel>
         <Grid RowDefinitions="Auto,Auto,*">
             <Border Grid.Row="0"
@@ -75,7 +76,7 @@
                     BorderBrush="{DynamicResource BorderBrush}"
                     BorderThickness="0,0,0,1"
                     Padding="{StaticResource ToolbarPadding}">
-                <Grid ColumnDefinitions="*,Auto,Auto,Auto"
+                <Grid ColumnDefinitions="220,Auto,*,Auto,Auto,Auto"
                       ColumnSpacing="{StaticResource SpaceSm}">
                     <TextBox Grid.Column="0"
                              Text="{Binding SearchText, Mode=TwoWay}"
@@ -88,7 +89,28 @@
                             Command="{Binding AddDownloadCommand}"
                             ToolTip.Tip="Add download (advanced)" />
 
-                    <Button Grid.Column="2"
+                    <TextBox Grid.Column="2"
+                             Text="{Binding QuickAddText, Mode=TwoWay}"
+                             PlaceholderText="Enter download link...">
+                        <TextBox.KeyBindings>
+                            <KeyBinding Gesture="Enter" Command="{Binding QuickAddCommand}" />
+                        </TextBox.KeyBindings>
+                        <TextBox.InnerRightContent>
+                            <Button Classes="icon"
+                                    Content="&#128203;"
+                                    Click="OnPasteQuickAdd"
+                                    ToolTip.Tip="Paste link from clipboard" />
+                        </TextBox.InnerRightContent>
+                    </TextBox>
+
+                    <Button Grid.Column="3"
+                            Classes="icon"
+                            Content="&#9654;"
+                            FontSize="{StaticResource HeadingSmFontSize}"
+                            Command="{Binding QuickAddCommand}"
+                            ToolTip.Tip="Start download" />
+
+                    <Button Grid.Column="4"
                             Classes="icon"
                             Content="&#128465;"
                             FontSize="{StaticResource HeadingSmFontSize}"
@@ -96,7 +118,7 @@
                             Command="{Binding BulkRemoveCommand}"
                             ToolTip.Tip="Remove selected downloads" />
 
-                    <Button Grid.Column="3"
+                    <Button Grid.Column="5"
                             Classes="icon"
                             Content="&#9881;"
                             FontSize="{StaticResource HeadingSmFontSize}"

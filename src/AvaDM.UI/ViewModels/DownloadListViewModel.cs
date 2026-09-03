@@ -101,6 +101,12 @@ public sealed partial class DownloadListViewModel : ViewModelBase, IDisposable
     [ObservableProperty]
     private string _searchText = string.Empty;
 
+    /// <summary>The top bar's quick-add link box. <see cref="QuickAdd"/> starts a download from it
+    /// using the current defaults; the clipboard button next to it fills it from the clipboard
+    /// (handled in the view, which has the <c>TopLevel</c> clipboard access).</summary>
+    [ObservableProperty]
+    private string _quickAddText = string.Empty;
+
     /// <summary>Non-null while the Add Download overlay is open; a fresh instance is created
     /// each time <see cref="AddDownload"/> runs, so its state never needs resetting between
     /// opens. <see cref="IsAddDownloadOpen"/> drives the overlay's visibility in AXAML.</summary>
@@ -205,6 +211,31 @@ public sealed partial class DownloadListViewModel : ViewModelBase, IDisposable
     [RelayCommand]
     private void AddDownload() =>
         ActiveAddDownload = new AddDownloadViewModel(_downloadManager, _settings, OnAddDownloadSubmitted, OnAddDownloadCancelled);
+
+    /// <summary>Top bar quick-add: start a download from <see cref="QuickAddText"/> using the
+    /// defaults (default folder, default connection count, no speed limit). Runs the same
+    /// <see cref="AddDownloadViewModel"/> submit as the advanced dialog, so an invalid URL or a
+    /// conflicting <c>(URL, destination)</c> surfaces there - the overlay stays open on that step
+    /// for the user to fix it. A clean success clears the box.</summary>
+    [RelayCommand]
+    private async Task QuickAdd()
+    {
+        var text = QuickAddText.Trim();
+        if (text.Length == 0 || ActiveAddDownload is not null)
+            return;
+
+        var add = new AddDownloadViewModel(_downloadManager, _settings, OnAddDownloadSubmitted, OnAddDownloadCancelled)
+        {
+            Url = text,
+        };
+        ActiveAddDownload = add;
+        await add.SubmitCommand.ExecuteAsync(null);
+
+        // OnAddDownloadSubmitted nulls ActiveAddDownload on success; anything else (validation
+        // error, conflict) leaves the overlay open on its resolution step.
+        if (ActiveAddDownload is null)
+            QuickAddText = string.Empty;
+    }
 
     private void OnAddDownloadSubmitted(DownloadRecord record, DownloadHandle handle)
     {

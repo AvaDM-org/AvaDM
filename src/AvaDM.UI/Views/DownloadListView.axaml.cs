@@ -2,6 +2,8 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
 using Avalonia.Input;
+using Avalonia.Input.Platform;
+using Avalonia.Interactivity;
 using AvaDM.UI.ViewModels;
 
 namespace AvaDM.UI.Views;
@@ -18,6 +20,29 @@ public partial class DownloadListView : UserControl
     public DownloadListView()
     {
         InitializeComponent();
+    }
+
+    /// <summary>Clipboard-paste icon inside the quick-add box: drop the clipboard text into it.
+    /// Clipboard access needs a TopLevel, hence the code-behind.</summary>
+    private async void OnPasteQuickAdd(object? sender, RoutedEventArgs e)
+    {
+        if (DataContext is not DownloadListViewModel vm)
+            return;
+
+        var clipboard = TopLevel.GetTopLevel(this)?.Clipboard;
+        if (clipboard is null)
+            return;
+
+        try
+        {
+            var text = await clipboard.TryGetTextAsync();
+            if (!string.IsNullOrWhiteSpace(text))
+                vm.QuickAddText = text.Trim();
+        }
+        catch
+        {
+            // Nothing useful on the clipboard, or it's unavailable - not worth surfacing.
+        }
     }
 
     /// <summary>Column-resize grip drag: widen/narrow the column under the grip.</summary>
