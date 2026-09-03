@@ -11,6 +11,24 @@ fail fast if its version has no section here**. Add the entry before pushing the
 
 ## [Unreleased]
 
+## [1.3.1] - 2026-09-03
+
+### Fixed
+
+- **A login-started (autostart) instance left a blank, content-less window** on Linux - just a
+  titlebar and frame with the desktop showing through, whose close button did nothing (only the
+  tray menu's Exit could get rid of it), exactly the symptom [1.2.2](#122---2026-08-31) and the
+  first attempt at this fix both failed to solve. The `--minimized` login launch showed the main
+  window and then hid it again immediately; on Linux an Avalonia window hidden before it has ever
+  rendered comes back from a later `Show()` permanently unpainted and unresponsive. A `--minimized`
+  launch now never shows the window at all, so the first time it opens (from the tray) is a genuine
+  first paint.
+
+- **AvaDM running blocked the system from logging out, rebooting, or shutting down**, with the
+  desktop reporting "Logout canceled by ''". The window's minimize-to-tray handler cancelled
+  *every* close request, including the one the session manager sends each window on logout. It now
+  only redirects a genuine user close to the tray and lets shutdown close the window normally.
+
 ## [1.3.0] - 2026-08-31
 
 ### Added
