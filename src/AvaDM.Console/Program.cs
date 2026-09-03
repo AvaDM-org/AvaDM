@@ -87,7 +87,7 @@ void PrintHelp()
 {
     dashboard.Log($"""
         Commands:
-          start <url> [destPath] [chunkCount]   Start a download, prints its id (d1, d2, ...)
+          start <url> [destPath] [connections]  Start a download, prints its id (d1, d2, ...)
                                                  destPath may be omitted (uses the default
                                                  download directory), a directory - existing
                                                  or not, e.g. "./tests" - (the filename is
@@ -108,7 +108,7 @@ async void Start(string[] parts)
 {
     if (parts.Length < 2)
     {
-        dashboard.Log("Usage: start <url> [destPath] [chunkCount] [--resume|--overwrite|--rename <path>]");
+        dashboard.Log("Usage: start <url> [destPath] [connections] [--resume|--overwrite|--rename <path>]");
         return;
     }
 
@@ -145,7 +145,7 @@ async void Start(string[] parts)
     var posArray = positionalParts.ToArray();
     if (posArray.Length < 2)
     {
-        dashboard.Log("Usage: start <url> [destPath] [chunkCount] [--resume|--overwrite|--rename <path>]");
+        dashboard.Log("Usage: start <url> [destPath] [connections] [--resume|--overwrite|--rename <path>]");
         return;
     }
 

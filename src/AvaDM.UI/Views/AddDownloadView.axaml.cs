@@ -30,6 +30,6 @@ public partial class AddDownloadView : UserControl
 
         var folder = folders.FirstOrDefault();
         if (folder?.TryGetLocalPath() is { } localPath)
-            viewModel.DestinationPath = localPath;
+            viewModel.SaveDirectory = localPath;
     }
 }

@@ -31,7 +31,7 @@
 
                 <Button Grid.Column="0" Classes="icon"
                         Command="{Binding ToggleExpandedCommand}"
-                        ToolTip.Tip="Show/hide chunks"
+                        ToolTip.Tip="Show/hide connections"
                         VerticalAlignment="Center">
                     <Panel>
                         <TextBlock Text="&#9656;" IsVisible="{Binding !IsExpanded}" />

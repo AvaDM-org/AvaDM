@@ -58,7 +58,7 @@ public sealed partial class ChunkRowViewModel : ViewModelBase
 
     public string ByteRangeText => FormatHelpers.FormatByteRange(StartByte, EndByte);
 
-    public string ChunkNumberText => $"Chunk {Index + 1}";
+    public string ChunkNumberText => $"Connection {Index + 1}";
 
     public string StatusText => Status.ToString();
 

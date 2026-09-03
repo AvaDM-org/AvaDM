@@ -51,7 +51,7 @@
                     </StackPanel>
 
                     <Grid ColumnDefinitions="*,Auto" ColumnSpacing="{StaticResource SpaceSm}">
-                        <TextBlock Grid.Column="0" Text="Chunk count"
+                        <TextBlock Grid.Column="0" Text="Connections per download"
                                    FontSize="{StaticResource BodyMdFontSize}"
                                    Foreground="{DynamicResource TextSecondaryBrush}"
                                    VerticalAlignment="Center" />

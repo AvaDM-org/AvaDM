@@ -184,7 +184,7 @@ internal sealed class DownloadDashboard
         var speed = chunk.Status == ChunkStatus.Downloading && chunk.SpeedBytesPerSecond is { } s ? $"{s:N0} B/s" : "-";
         var total = chunk.TotalBytes > 0 ? $"{chunk.TotalBytes:N0}" : "???";
         var endByte = chunk.EndByte >= chunk.StartByte ? $"{chunk.EndByte:N0}" : "???";
-        return $"    chunk {chunk.Index,-3} {chunk.Status,-11} {chunk.BytesDownloaded:N0}/{total} bytes ({percent:0.0}%) @ {speed} " +
+        return $"    connection {chunk.Index,-3} {chunk.Status,-11} {chunk.BytesDownloaded:N0}/{total} bytes ({percent:0.0}%) @ {speed} " +
                $"[{chunk.StartByte:N0}-{endByte}]";
     }
 }

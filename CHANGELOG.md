@@ -9,7 +9,21 @@ Each released version below has a matching `vX.Y.Z` git tag. `.github/workflows/
 the section for the tag it is building and uses it as the GitHub Release notes, so **a release will
 fail fast if its version has no section here**. Add the entry before pushing the tag.
 
-## [Unreleased]
+## [1.4.0] - Unreleased
+
+_Accumulating several PRs; the release date and `v1.4.0` tag are set once the batch is complete._
+
+### Changed
+
+- **The Add Download form now has a separate "File name" field.** Typing a link fills it in with
+  the name derived from the URL (the same name the engine would have used), and it stays editable,
+  so the file can be saved under a different name than the link's without renaming it afterwards.
+  "Save to" is now just the destination folder.
+- **"Chunks" is now called "Connections" everywhere it's shown** (matching the term other
+  download managers use): the per-connection rows in an expanded download ("Connection 1",
+  "Connection 2", …) and that row's show/hide tooltip, the Add Download advanced options, and
+  "Connections per download" in Settings. The Add Download field's placeholder now names the
+  actual default it falls back to instead of just saying "Default".
 
 ## [1.3.1] - 2026-09-03
 
