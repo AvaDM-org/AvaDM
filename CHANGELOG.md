@@ -11,6 +11,18 @@ fail fast if its version has no section here**. Add the entry before pushing the
 
 ## [Unreleased]
 
+## [1.3.1] - 2026-09-03
+
+### Fixed
+
+- **Restoring the window from the tray on a login-started (autostart) instance left a blank,
+  content-less window** on Linux and macOS - just a titlebar and frame with the desktop showing
+  through, exactly the symptom [1.2.2](#122---2026-08-31) was supposed to have fixed. The
+  `--minimized` startup handler that hides the window at login stayed subscribed to Avalonia's
+  `Window.Opened` event, which fires again on *every* `Show()` - so each tray restore re-ran the
+  hide in the middle of restoring. It's now a one-shot that only fires for the real first open at
+  login.
+
 ## [1.3.0] - 2026-08-31
 
 ### Added
