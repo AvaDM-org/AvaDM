@@ -1,25 +1,17 @@
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using AvaDM.Core;
+using AvaDM.UI.Services;
 using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 
 namespace AvaDM.UI.ViewModels;
 
-/// <summary>Status filter for the downloads list toolbar.</summary>
-public enum DownloadListStatusFilter
-{
-    All,
-    Active,
-    Completed,
-    Failed,
-}
-
 /// <summary>
 /// Downloads list page: the full set of persisted downloads (each optionally backed by a live
-/// <see cref="DownloadHandle"/> when active in this process), a status filter + text search over
-/// the visible subset, and a periodic reconciliation poll that keeps the list in sync with
+/// <see cref="DownloadHandle"/> when active in this process), a text search over the visible
+/// subset, and a periodic reconciliation poll that keeps the list in sync with
 /// downloads started/finished/removed elsewhere (or, after a restart, downloads this process
 /// hasn't touched yet - see <see cref="DownloadRowViewModel"/>'s derived Interrupted status).
 ///
@@ -37,6 +29,11 @@ public sealed partial class DownloadListViewModel : ViewModelBase, IDisposable
     private readonly Func<DownloadDoubleClickAction> _getDoubleClickAction;
     private readonly DispatcherTimer _reconcileTimer;
 
+    /// <summary>Column layout (order, visibility, widths) and the active sort for the downloads
+    /// table. The view binds its header bar and rows to this; a sort change re-runs
+    /// <see cref="ApplyFilter"/> so <see cref="FilteredDownloads"/> reorders to match.</summary>
+    public DownloadColumnsViewModel Columns { get; }
+
     /// <summary>Debounces <see cref="SearchText"/> so <see cref="ApplyFilter"/> - an O(n) scan
     /// plus O(n) list-diff per call - runs once typing pauses rather than on every keystroke,
     /// which would otherwise stall the UI thread on a long download list.</summary>
@@ -48,6 +45,28 @@ public sealed partial class DownloadListViewModel : ViewModelBase, IDisposable
     private readonly List<DownloadRowViewModel> _allRows = [];
 
     public ObservableCollection<DownloadRowViewModel> FilteredDownloads { get; } = new();
+
+    /// <summary>Rows the user has ticked/selected in the table. Two-way bound to the list's
+    /// <c>SelectedItems</c>, so it tracks click / Ctrl+click / Shift+click / row checkbox /
+    /// select-all alike. Drives the toolbar trash icon and the bulk-remove flow.</summary>
+    public ObservableCollection<DownloadRowViewModel> SelectedDownloads { get; } = new();
+
+    /// <summary>Guards <see cref="SelectAllState"/> against re-entrancy: user toggles drive the
+    /// selection, and selection changes drive the tri-state back, and neither should trigger the
+    /// other.</summary>
+    private bool _syncingSelectAll;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasSelection))]
+    private int _selectedCount;
+
+    public bool HasSelection => SelectedCount > 0;
+
+    /// <summary>Header select-all checkbox: <c>true</c> = every visible row selected, <c>false</c>
+    /// = none, <c>null</c> = some (shown as the indeterminate dash). Not three-state for the
+    /// user - a click always goes to "select all", then "clear".</summary>
+    [ObservableProperty]
+    private bool? _selectAllState = false;
 
     /// <summary>Fires whenever a row is added, removed, or changes <see cref="DownloadRowViewModel.DisplayStatus"/>
     /// (start, pause, resume, complete, fail, handle attach/detach) - i.e. whenever the set of
@@ -80,14 +99,13 @@ public sealed partial class DownloadListViewModel : ViewModelBase, IDisposable
     public ObservableCollection<ToastViewModel> Toasts { get; } = new();
 
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(IsFilterAll))]
-    [NotifyPropertyChangedFor(nameof(IsFilterActive))]
-    [NotifyPropertyChangedFor(nameof(IsFilterCompleted))]
-    [NotifyPropertyChangedFor(nameof(IsFilterFailed))]
-    private DownloadListStatusFilter _statusFilter = DownloadListStatusFilter.All;
-
-    [ObservableProperty]
     private string _searchText = string.Empty;
+
+    /// <summary>The top bar's quick-add link box. <see cref="QuickAdd"/> starts a download from it
+    /// using the current defaults; the clipboard button next to it fills it from the clipboard
+    /// (handled in the view, which has the <c>TopLevel</c> clipboard access).</summary>
+    [ObservableProperty]
+    private string _quickAddText = string.Empty;
 
     /// <summary>Non-null while the Add Download overlay is open; a fresh instance is created
     /// each time <see cref="AddDownload"/> runs, so its state never needs resetting between
@@ -116,22 +134,18 @@ public sealed partial class DownloadListViewModel : ViewModelBase, IDisposable
 
     public bool IsCancelConfirmationOpen => ActiveCancelConfirmation is not null;
 
-    /// <summary>Selected-state flags for the toolbar's filter tabs, one per
-    /// <see cref="DownloadListStatusFilter"/> value. AXAML has no direct way to bind a style
-    /// class to a view-model bool, so each tab is two overlaid buttons (selected/unselected
-    /// styling) toggled by these - the same pattern already used for the row expand/collapse
-    /// glyph in <c>DownloadRowView.axaml</c>.</summary>
-    public bool IsFilterAll => StatusFilter == DownloadListStatusFilter.All;
+    /// <summary>Non-null while the bulk-remove confirmation overlay is open (toolbar trash icon
+    /// or the Delete key). <see cref="IsBulkRemoveConfirmationOpen"/> drives its visibility.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsBulkRemoveConfirmationOpen))]
+    private BulkRemoveConfirmationViewModel? _activeBulkRemoveConfirmation;
 
-    public bool IsFilterActive => StatusFilter == DownloadListStatusFilter.Active;
-
-    public bool IsFilterCompleted => StatusFilter == DownloadListStatusFilter.Completed;
-
-    public bool IsFilterFailed => StatusFilter == DownloadListStatusFilter.Failed;
+    public bool IsBulkRemoveConfirmationOpen => ActiveBulkRemoveConfirmation is not null;
 
     public DownloadListViewModel(
         DownloadManager downloadManager,
         DownloadSettings settings,
+        UiPreferencesRepository uiPreferences,
         Action navigateToSettings,
         Func<DownloadDoubleClickAction> getDoubleClickAction)
     {
@@ -139,6 +153,15 @@ public sealed partial class DownloadListViewModel : ViewModelBase, IDisposable
         _settings = settings;
         _navigateToSettings = navigateToSettings;
         _getDoubleClickAction = getDoubleClickAction;
+
+        Columns = new DownloadColumnsViewModel(uiPreferences);
+        Columns.SortChanged += (_, _) => ApplyFilter();
+
+        SelectedDownloads.CollectionChanged += (_, _) =>
+        {
+            SelectedCount = SelectedDownloads.Count;
+            RecomputeSelectAllState();
+        };
 
         _reconcileTimer = new DispatcherTimer { Interval = ReconcileInterval };
         _reconcileTimer.Tick += async (_, _) => await ReconcileAsync();
@@ -157,14 +180,62 @@ public sealed partial class DownloadListViewModel : ViewModelBase, IDisposable
     [RelayCommand]
     private void OpenSettings() => _navigateToSettings();
 
+    /// <summary>Toolbar trash icon / Delete key: confirm removing every selected row at once.
+    /// No-op with nothing selected (the trash icon is hidden then anyway).</summary>
     [RelayCommand]
-    private void SetStatusFilter(DownloadListStatusFilter filter) => StatusFilter = filter;
+    private void BulkRemove()
+    {
+        if (SelectedDownloads.Count == 0 || ActiveBulkRemoveConfirmation is not null)
+            return;
+
+        ActiveBulkRemoveConfirmation = new BulkRemoveConfirmationViewModel(
+            _downloadManager,
+            SelectedDownloads.ToList(),
+            OnBulkRemoveOutcome,
+            () => ActiveBulkRemoveConfirmation = null);
+    }
+
+    private void OnBulkRemoveOutcome(BulkRemoveOutcome outcome)
+    {
+        foreach (var id in outcome.RemovedIds)
+            RemoveRow(id);
+
+        // Fully successful: close the overlay. Partial failure: leave it open so its error text
+        // is visible; the user dismisses it with Cancel.
+        if (outcome.FailureCount == 0)
+            ActiveBulkRemoveConfirmation = null;
+    }
 
     /// <summary>Opens the Add Download overlay with a fresh view model wired to close itself
     /// (submitted or cancelled) via the two callbacks below.</summary>
     [RelayCommand]
     private void AddDownload() =>
         ActiveAddDownload = new AddDownloadViewModel(_downloadManager, _settings, OnAddDownloadSubmitted, OnAddDownloadCancelled);
+
+    /// <summary>Top bar quick-add: start a download from <see cref="QuickAddText"/> using the
+    /// defaults (default folder, default connection count, no speed limit). Runs the same
+    /// <see cref="AddDownloadViewModel"/> submit as the advanced dialog, so an invalid URL or a
+    /// conflicting <c>(URL, destination)</c> surfaces there - the overlay stays open on that step
+    /// for the user to fix it. A clean success clears the box.</summary>
+    [RelayCommand]
+    private async Task QuickAdd()
+    {
+        var text = QuickAddText.Trim();
+        if (text.Length == 0 || ActiveAddDownload is not null)
+            return;
+
+        var add = new AddDownloadViewModel(_downloadManager, _settings, OnAddDownloadSubmitted, OnAddDownloadCancelled)
+        {
+            Url = text,
+        };
+        ActiveAddDownload = add;
+        await add.SubmitCommand.ExecuteAsync(null);
+
+        // OnAddDownloadSubmitted nulls ActiveAddDownload on success; anything else (validation
+        // error, conflict) leaves the overlay open on its resolution step.
+        if (ActiveAddDownload is null)
+            QuickAddText = string.Empty;
+    }
 
     private void OnAddDownloadSubmitted(DownloadRecord record, DownloadHandle handle)
     {
@@ -193,6 +264,17 @@ public sealed partial class DownloadListViewModel : ViewModelBase, IDisposable
             () => OnRemoveConfirmed(row),
             OnRemoveCancelled);
 
+    /// <summary>Context-menu "Remove" on a row: the view has already ensured <paramref name="row"/>
+    /// is selected, so route to the bulk dialog when more than one row is selected and the plain
+    /// single-row dialog otherwise.</summary>
+    private void RequestContextRemove(DownloadRowViewModel row)
+    {
+        if (SelectedDownloads.Count > 1 && SelectedDownloads.Contains(row))
+            BulkRemove();
+        else
+            RequestRemove(row);
+    }
+
     private void OnRemoveConfirmed(DownloadRowViewModel row)
     {
         RemoveRow(row.Id);
@@ -211,12 +293,6 @@ public sealed partial class DownloadListViewModel : ViewModelBase, IDisposable
     private void OnCancelConfirmed() => ActiveCancelConfirmation = null;
 
     private void OnCancelDismissed() => ActiveCancelConfirmation = null;
-
-    partial void OnStatusFilterChanged(DownloadListStatusFilter value)
-    {
-        _ = value;
-        ApplyFilter();
-    }
 
     partial void OnSearchTextChanged(string value)
     {
@@ -252,7 +328,7 @@ public sealed partial class DownloadListViewModel : ViewModelBase, IDisposable
         }
 
         var row = new DownloadRowViewModel(
-            _downloadManager, record, handle, RequestRemove, RequestCancel, ShowToast, _getDoubleClickAction);
+            _downloadManager, Columns, record, handle, RequestRemove, RequestContextRemove, RequestCancel, ShowToast, _getDoubleClickAction);
         _allRows.Add(row);
         TrackRow(row);
         ApplyFilter();
@@ -277,8 +353,10 @@ public sealed partial class DownloadListViewModel : ViewModelBase, IDisposable
 
         row.PropertyChanged -= OnRowPropertyChanged;
         row.Detach();
+        row.Release();
         _allRows.Remove(row);
         FilteredDownloads.Remove(row);
+        SelectedDownloads.Remove(row);
         RaiseDownloadsChanged();
     }
 
@@ -309,9 +387,11 @@ public sealed partial class DownloadListViewModel : ViewModelBase, IDisposable
                 {
                     var newRow = new DownloadRowViewModel(
                         _downloadManager,
+                        Columns,
                         record,
                         _downloadManager.GetActiveHandle(record.Id),
                         RequestRemove,
+                        RequestContextRemove,
                         RequestCancel,
                         ShowToast,
                         _getDoubleClickAction);
@@ -345,7 +425,8 @@ public sealed partial class DownloadListViewModel : ViewModelBase, IDisposable
     private void ApplyFilter()
     {
         var search = SearchText.Trim();
-        var matches = _allRows.Where(MatchesStatusFilter).Where(r => MatchesSearch(r, search)).ToList();
+        var matches = _allRows.Where(r => MatchesSearch(r, search)).ToList();
+        SortMatches(matches);
 
         for (var i = FilteredDownloads.Count - 1; i >= 0; i--)
         {
@@ -363,17 +444,85 @@ public sealed partial class DownloadListViewModel : ViewModelBase, IDisposable
                     FilteredDownloads.Insert(i, matches[i]);
             }
         }
+
+        // Selection only ever covers what's on screen - a row filtered out by search drops out
+        // of the selection too, so the trash icon / Delete key never act on hidden rows.
+        for (var i = SelectedDownloads.Count - 1; i >= 0; i--)
+        {
+            if (!FilteredDownloads.Contains(SelectedDownloads[i]))
+                SelectedDownloads.RemoveAt(i);
+        }
+
+        RecomputeSelectAllState();
     }
 
-    private bool MatchesStatusFilter(DownloadRowViewModel row) => StatusFilter switch
+    partial void OnSelectAllStateChanged(bool? value)
     {
-        DownloadListStatusFilter.All => true,
-        DownloadListStatusFilter.Active => row.DisplayStatus is DownloadDisplayStatus.Running
-            or DownloadDisplayStatus.Paused or DownloadDisplayStatus.Pending or DownloadDisplayStatus.Interrupted,
-        DownloadListStatusFilter.Completed => row.DisplayStatus == DownloadDisplayStatus.Completed,
-        DownloadListStatusFilter.Failed => row.DisplayStatus == DownloadDisplayStatus.Failed,
-        _ => true,
-    };
+        if (_syncingSelectAll)
+            return;
+
+        if (value == true)
+        {
+            foreach (var row in FilteredDownloads)
+            {
+                if (!SelectedDownloads.Contains(row))
+                    SelectedDownloads.Add(row);
+            }
+        }
+        else
+        {
+            SelectedDownloads.Clear();
+        }
+    }
+
+    private void RecomputeSelectAllState()
+    {
+        _syncingSelectAll = true;
+        try
+        {
+            var selectedVisible = FilteredDownloads.Count(SelectedDownloads.Contains);
+            SelectAllState = selectedVisible == 0
+                ? false
+                : selectedVisible == FilteredDownloads.Count ? true : null;
+        }
+        finally
+        {
+            _syncingSelectAll = false;
+        }
+    }
+
+    /// <summary>Orders <paramref name="rows"/> by the active sort column + direction (see
+    /// <see cref="Columns"/>). File name then id are the tie-breakers so the order is stable
+    /// across ticks even when the primary key is equal (e.g. two pending downloads, both 0%).</summary>
+    private void SortMatches(List<DownloadRowViewModel> rows)
+    {
+        Comparison<DownloadRowViewModel> primary = Columns.SortColumnId switch
+        {
+            DownloadColumnId.Name => (a, b) => NameCompare(a, b),
+            DownloadColumnId.Type => (a, b) => string.Compare(a.Extension, b.Extension, StringComparison.OrdinalIgnoreCase),
+            DownloadColumnId.Size => (a, b) => a.TotalBytes.CompareTo(b.TotalBytes),
+            DownloadColumnId.Created => (a, b) => a.CreatedAt.CompareTo(b.CreatedAt),
+            DownloadColumnId.Speed => (a, b) => Nullable.Compare(a.SpeedBytesPerSecond, b.SpeedBytesPerSecond),
+            DownloadColumnId.ProgressPercent => (a, b) => a.ProgressPercent.CompareTo(b.ProgressPercent),
+            DownloadColumnId.ProgressSize => (a, b) => a.BytesDownloaded.CompareTo(b.BytesDownloaded),
+            DownloadColumnId.Status => (a, b) => a.DisplayStatus.CompareTo(b.DisplayStatus),
+            _ => (a, b) => a.CreatedAt.CompareTo(b.CreatedAt),
+        };
+
+        var sign = Columns.SortAscending ? 1 : -1;
+        rows.Sort((a, b) =>
+        {
+            var result = primary(a, b);
+            if (result != 0)
+                return sign * result;
+
+            var tie = NameCompare(a, b);
+            return tie != 0 ? tie : a.Id.CompareTo(b.Id);
+        });
+    }
+
+    private static int NameCompare(DownloadRowViewModel a, DownloadRowViewModel b) =>
+        string.Compare(a.FileName, b.FileName, StringComparison.OrdinalIgnoreCase);
 
     private static bool MatchesSearch(DownloadRowViewModel row, string search) =>
         string.IsNullOrEmpty(search)
@@ -384,5 +533,10 @@ public sealed partial class DownloadListViewModel : ViewModelBase, IDisposable
     {
         _reconcileTimer.Stop();
         _searchDebounceTimer.Stop();
+        foreach (var row in _allRows)
+        {
+            row.Detach();
+            row.Release();
+        }
     }
 }

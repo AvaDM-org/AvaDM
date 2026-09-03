@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.ComponentModel;
 using AvaDM.Core;
 using AvaDM.UI.Converters;
 using AvaDM.UI.Services;
@@ -49,8 +50,18 @@ public enum DownloadDisplayStatus
 /// </summary>
 public sealed partial class DownloadRowViewModel : ViewModelBase
 {
+    /// <summary>Trailing-cell properties (one per column type) whose value comes from this row.
+    /// A change to any of them refreshes <see cref="Cells"/>.</summary>
+    private static readonly HashSet<string> CellSourceProperties =
+    [
+        nameof(Extension), nameof(SizeText), nameof(CreatedText), nameof(SpeedText),
+        nameof(ProgressPercentText), nameof(BytesText), nameof(RunningEtaText),
+    ];
+
     private readonly DownloadManager _downloadManager;
+    private readonly DownloadColumnsViewModel _columns;
     private readonly Action<DownloadRowViewModel> _onRemoveRequested;
+    private readonly Action<DownloadRowViewModel> _onContextRemoveRequested;
     private readonly Action<DownloadRowViewModel> _onCancelRequested;
     private readonly Action<string> _onLogMessage;
     private readonly Func<DownloadDoubleClickAction> _getDoubleClickAction;
@@ -58,7 +69,12 @@ public sealed partial class DownloadRowViewModel : ViewModelBase
 
     public Guid Id { get; }
 
+    /// <summary>When this download was first added, straight from its persisted record. Immutable
+    /// for the row's lifetime; drives the "Created" column and its sort.</summary>
+    public DateTime CreatedAt { get; }
+
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(Extension))]
     private string _fileName;
 
     [ObservableProperty]
@@ -77,6 +93,9 @@ public sealed partial class DownloadRowViewModel : ViewModelBase
     [NotifyPropertyChangedFor(nameof(CanCancel))]
     [NotifyPropertyChangedFor(nameof(SpeedText))]
     [NotifyPropertyChangedFor(nameof(EtaText))]
+    [NotifyPropertyChangedFor(nameof(RunningEtaText))]
+    [NotifyPropertyChangedFor(nameof(ProgressPercentText))]
+    [NotifyPropertyChangedFor(nameof(ShowProgressBar))]
     [NotifyPropertyChangedFor(nameof(CanOpenDownload))]
     [NotifyPropertyChangedFor(nameof(IsSizeUnknown))]
     [NotifyCanExecuteChangedFor(nameof(PauseCommand))]
@@ -95,6 +114,9 @@ public sealed partial class DownloadRowViewModel : ViewModelBase
     [NotifyPropertyChangedFor(nameof(CanCancel))]
     [NotifyPropertyChangedFor(nameof(SpeedText))]
     [NotifyPropertyChangedFor(nameof(EtaText))]
+    [NotifyPropertyChangedFor(nameof(RunningEtaText))]
+    [NotifyPropertyChangedFor(nameof(ProgressPercentText))]
+    [NotifyPropertyChangedFor(nameof(ShowProgressBar))]
     [NotifyPropertyChangedFor(nameof(CanOpenDownload))]
     [NotifyPropertyChangedFor(nameof(IsSizeUnknown))]
     [NotifyCanExecuteChangedFor(nameof(PauseCommand))]
@@ -107,23 +129,28 @@ public sealed partial class DownloadRowViewModel : ViewModelBase
     [NotifyPropertyChangedFor(nameof(ProgressPercent))]
     [NotifyPropertyChangedFor(nameof(BytesText))]
     [NotifyPropertyChangedFor(nameof(EtaText))]
+    [NotifyPropertyChangedFor(nameof(RunningEtaText))]
+    [NotifyPropertyChangedFor(nameof(ProgressPercentText))]
     private long _bytesDownloaded;
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(ProgressPercent))]
     [NotifyPropertyChangedFor(nameof(BytesText))]
     [NotifyPropertyChangedFor(nameof(EtaText))]
+    [NotifyPropertyChangedFor(nameof(RunningEtaText))]
+    [NotifyPropertyChangedFor(nameof(ProgressPercentText))]
+    [NotifyPropertyChangedFor(nameof(SizeText))]
     [NotifyPropertyChangedFor(nameof(IsSizeUnknown))]
     private long _totalBytes;
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(SpeedText))]
     [NotifyPropertyChangedFor(nameof(EtaText))]
+    [NotifyPropertyChangedFor(nameof(RunningEtaText))]
     private double? _speedBytesPerSecond;
 
-    /// <summary>Last error text, kept even after the row stops being expanded so a Failed row's
-    /// reason is visible without expanding it - design.md has no log panel, so this is the only
-    /// place the failure reason surfaces.</summary>
+    /// <summary>Last error text for a Failed row, shown as a red line under the name/path - there
+    /// is no log panel, so this is the only place the failure reason surfaces.</summary>
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(HasLastError))]
     private string? _lastError;
@@ -133,33 +160,77 @@ public sealed partial class DownloadRowViewModel : ViewModelBase
     /// converter-free-view-model convention (see <c>Converters/FormatHelpers.cs</c>).</summary>
     public bool HasLastError => !string.IsNullOrEmpty(LastError);
 
-    [ObservableProperty]
-    private bool _isExpanded;
+    private const decimal BytesPerMegabyte = 1024 * 1024;
 
-    /// <summary>Bound to the inline <see cref="Controls.SpeedLimitEditor"/> shown only while
-    /// expanded. Applied to the live handle immediately on change (see
-    /// <see cref="OnSpeedLimitBytesPerSecondChanged"/>) rather than needing an explicit Apply
-    /// step, since <see cref="DownloadHandle.SetSpeedLimit"/> is cheap to call repeatedly.</summary>
+    /// <summary>Last non-null limit the user set, in MB/s - so toggling Unlimited off restores it
+    /// rather than jumping to a default.</summary>
+    private decimal _lastLimitMegabytes = 1m;
+
+    /// <summary>Speed-limit for this download, in bytes/sec (<c>null</c> = unlimited). Edited from
+    /// the Speed column cell and applied to the live handle immediately on change (see
+    /// <see cref="OnSpeedLimitBytesPerSecondChanged"/>), since <see cref="DownloadHandle.SetSpeedLimit"/>
+    /// is cheap to call repeatedly.</summary>
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(SpeedLimitDisplayText))]
+    [NotifyPropertyChangedFor(nameof(SpeedLimitUnlimited))]
+    [NotifyPropertyChangedFor(nameof(SpeedLimitMegabytes))]
     private long? _speedLimitBytesPerSecond;
 
+    /// <summary>Secondary line under the current speed in the Speed cell: the active limit, or
+    /// "no limit".</summary>
+    public string SpeedLimitDisplayText => SpeedLimitBytesPerSecond is { } bytesPerSecond
+        ? $"limit {FormatHelpers.FormatBytes(bytesPerSecond)}/s"
+        : "no limit";
+
+    /// <summary>The Speed-cell flyout's "Unlimited" toggle. Off restores the last MB/s value.</summary>
+    public bool SpeedLimitUnlimited
+    {
+        get => SpeedLimitBytesPerSecond is null;
+        set => SpeedLimitBytesPerSecond = value
+            ? null
+            : (long)Math.Max(1m, Math.Round(_lastLimitMegabytes * BytesPerMegabyte));
+    }
+
+    /// <summary>The Speed-cell flyout's MB/s spinner. Setting it while a limit is active applies
+    /// immediately; while Unlimited it's just remembered for when the toggle is turned off.</summary>
+    public decimal? SpeedLimitMegabytes
+    {
+        get => SpeedLimitBytesPerSecond is { } bytes ? (decimal)bytes / BytesPerMegabyte : _lastLimitMegabytes;
+        set
+        {
+            _lastLimitMegabytes = value is { } v && v > 0m ? v : 0.1m;
+            if (SpeedLimitBytesPerSecond is not null)
+                SpeedLimitBytesPerSecond = (long)Math.Max(1m, Math.Round(_lastLimitMegabytes * BytesPerMegabyte));
+        }
+    }
+
+    /// <summary>Per-connection snapshots feeding the name cell's segmented progress bar.</summary>
     public ObservableCollection<ChunkRowViewModel> Chunks { get; } = new();
+
+    /// <summary>Trailing-column cells for this row, in the current column order. Rebuilt when the
+    /// shared column layout changes; each cell's text is refreshed when this row's data changes.</summary>
+    public ObservableCollection<DownloadCellViewModel> Cells { get; } = new();
 
     public DownloadRowViewModel(
         DownloadManager downloadManager,
+        DownloadColumnsViewModel columns,
         DownloadRecord record,
         DownloadHandle? handle,
         Action<DownloadRowViewModel> onRemoveRequested,
+        Action<DownloadRowViewModel> onContextRemoveRequested,
         Action<DownloadRowViewModel> onCancelRequested,
         Action<string> onLogMessage,
         Func<DownloadDoubleClickAction> getDoubleClickAction)
     {
         _downloadManager = downloadManager;
+        _columns = columns;
         _onRemoveRequested = onRemoveRequested;
+        _onContextRemoveRequested = onContextRemoveRequested;
         _onCancelRequested = onCancelRequested;
         _onLogMessage = onLogMessage;
         _getDoubleClickAction = getDoubleClickAction;
         Id = record.Id;
+        CreatedAt = record.CreatedAt;
         _fileName = Path.GetFileName(record.DestinationPath);
         _destinationPath = record.DestinationPath;
         _sourceUrl = record.Uri;
@@ -169,9 +240,67 @@ public sealed partial class DownloadRowViewModel : ViewModelBase
 
         if (handle is not null)
             AttachHandle(handle);
+
+        RebuildCells();
+        _columns.LayoutChanged += OnColumnLayoutChanged;
+        PropertyChanged += OnSelfPropertyChanged;
+    }
+
+    /// <summary>Detaches this row's shared-state subscriptions. Called by
+    /// <see cref="DownloadListViewModel"/> when the row leaves the list, alongside
+    /// <see cref="Detach"/>.</summary>
+    public void Release()
+    {
+        _columns.LayoutChanged -= OnColumnLayoutChanged;
+        PropertyChanged -= OnSelfPropertyChanged;
+    }
+
+    private void OnColumnLayoutChanged(object? sender, EventArgs e) => RebuildCells();
+
+    private void OnSelfPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName is not null && CellSourceProperties.Contains(e.PropertyName))
+        {
+            foreach (var cell in Cells)
+                cell.Refresh();
+        }
+    }
+
+    private void RebuildCells()
+    {
+        Cells.Clear();
+        foreach (var column in _columns.VisibleTrailingColumns)
+            Cells.Add(new DownloadCellViewModel(column, this));
     }
 
     public double ProgressPercent => TotalBytes > 0 ? BytesDownloaded * 100.0 / TotalBytes : 0.0;
+
+    /// <summary>File extension without the leading dot (e.g. "mkv"), or empty when the name has
+    /// none. Backs the "Type" column.</summary>
+    public string Extension => Path.GetExtension(FileName).TrimStart('.');
+
+    /// <summary>Total size for the "Size" column - an em dash until the size is known.</summary>
+    public string SizeText => TotalBytes > 0 ? FormatHelpers.FormatBytes(TotalBytes) : "—";
+
+    /// <summary>Add date/time for the "Created" column. Local time, fixed
+    /// <c>yyyy-MM-dd HH:mm</c> format (the app runs invariant - see <c>InvariantGlobalization</c>).</summary>
+    public string CreatedText => CreatedAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm");
+
+    /// <summary>Percent text for the "Progress %" column - an em dash while the size is unknown.</summary>
+    public string ProgressPercentText => IsSizeUnknown ? "—" : $"{ProgressPercent:N0}%";
+
+    /// <summary>Secondary line under the two progress columns: time remaining, but only while a
+    /// running download has enough information to estimate it. Empty otherwise.</summary>
+    public string RunningEtaText =>
+        HasActiveHandle && State == DownloadState.Running && TotalBytes > 0 && SpeedBytesPerSecond is > 0
+            ? FormatHelpers.FormatEta(TotalBytes - BytesDownloaded, SpeedBytesPerSecond)
+            : string.Empty;
+
+    /// <summary>Whether the name cell shows the inline aggregate progress bar - only for a
+    /// download this process is actively running, has paused, or is starting. Interrupted and
+    /// terminal rows show just the name + path (row height varies, per the #19 design decision).</summary>
+    public bool ShowProgressBar =>
+        HasActiveHandle && State is DownloadState.Running or DownloadState.Paused or DownloadState.Pending;
 
     /// <summary>True while a download is actively running but its total size isn't known yet -
     /// a server that didn't report <c>Content-Length</c> (see <c>Downloader</c>'s unknown-size
@@ -336,7 +465,8 @@ public sealed partial class DownloadRowViewModel : ViewModelBase
         });
 
     /// <summary>Updates <see cref="Chunks"/> in place (matched by index) rather than replacing
-    /// the collection, so an expanded chunk panel doesn't flicker/rebuild on every tick.</summary>
+    /// the collection, so the name cell's segmented progress bar animates each connection's fill
+    /// instead of rebuilding its segments on every tick.</summary>
     private void SyncChunksFrom(IReadOnlyList<ChunkProgress> snapshot)
     {
         for (var i = 0; i < snapshot.Count; i++)
@@ -381,13 +511,25 @@ public sealed partial class DownloadRowViewModel : ViewModelBase
     [RelayCommand(CanExecute = nameof(CanCancel))]
     private void Cancel() => _onCancelRequested(this);
 
-    [RelayCommand]
-    private void ToggleExpanded() => IsExpanded = !IsExpanded;
-
     partial void OnSpeedLimitBytesPerSecondChanged(long? value) => _handle?.SetSpeedLimit(value);
 
     [RelayCommand]
     private void Remove() => _onRemoveRequested(this);
+
+    /// <summary>Context-menu "Remove": acts on the whole current selection (the view has already
+    /// made sure this row is part of it) - the list view model picks the single- or bulk-remove
+    /// dialog by how many rows are selected.</summary>
+    [RelayCommand]
+    private void ContextRemove() => _onContextRemoveRequested(this);
+
+    /// <summary>Context-menu "Open file" - always opens the file itself (unlike the double-click
+    /// gesture, which follows the Settings "double-click action" choice).</summary>
+    [RelayCommand(CanExecute = nameof(CanOpenDownload))]
+    private void OpenFile()
+    {
+        if (!FileLauncher.OpenFile(DestinationPath))
+            _onLogMessage($"Couldn't open \"{FileName}\" - it may have been moved or deleted.");
+    }
 
     /// <summary>Double-click behavior for a completed row, per the Settings page's
     /// "Downloaded item double-click" choice - either open the file itself or reveal its

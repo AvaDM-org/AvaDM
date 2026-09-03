@@ -1,11 +1,166 @@
+using System.Linq;
+using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Input;
+using Avalonia.Input.Platform;
+using Avalonia.Interactivity;
+using Avalonia.VisualTree;
+using AvaDM.UI.ViewModels;
 
 namespace AvaDM.UI.Views;
 
 public partial class DownloadListView : UserControl
 {
+    private const double MinColumnWidth = 48;
+    private const double DragThreshold = 6;
+
+    private DownloadColumnViewModel? _dragColumn;
+    private double _dragStartX;
+    private bool _dragging;
+
+    private DownloadColumnViewModel? _resizeColumn;
+    private double _resizeStartX;
+    private double _resizeStartWidth;
+
     public DownloadListView()
     {
         InitializeComponent();
+
+        // The header cell is a Button (click = sort); a plain bubbling handler on the row above
+        // it would fire only after the Button has already handled the press/release and run the
+        // sort. Tunnelling handlers see the pointer first, so a drag can be recognised and the
+        // release swallowed before the Button's click - leaving a genuine click to still sort.
+        TrailingHeaders.AddHandler(PointerPressedEvent, OnHeaderPointerPressed, RoutingStrategies.Tunnel, handledEventsToo: true);
+        TrailingHeaders.AddHandler(PointerMovedEvent, OnHeaderPointerMoved, RoutingStrategies.Tunnel, handledEventsToo: true);
+        TrailingHeaders.AddHandler(PointerReleasedEvent, OnHeaderPointerReleased, RoutingStrategies.Tunnel, handledEventsToo: true);
+    }
+
+    /// <summary>Clipboard-paste icon inside the quick-add box: drop the clipboard text into it.
+    /// Clipboard access needs a TopLevel, hence the code-behind.</summary>
+    private async void OnPasteQuickAdd(object? sender, RoutedEventArgs e)
+    {
+        if (DataContext is not DownloadListViewModel vm)
+            return;
+
+        var clipboard = TopLevel.GetTopLevel(this)?.Clipboard;
+        if (clipboard is null)
+            return;
+
+        try
+        {
+            var text = await clipboard.TryGetTextAsync();
+            if (!string.IsNullOrWhiteSpace(text))
+                vm.QuickAddText = text.Trim();
+        }
+        catch
+        {
+            // Nothing useful on the clipboard, or it's unavailable - not worth surfacing.
+        }
+    }
+
+    // --- column-resize grip (issue #19) ---------------------------------------------------
+    // Track the pointer against a stable coordinate space (this control) and set width from the
+    // total offset since the press - not an incremental delta, which fed the column's own layout
+    // shift back into itself and ran away, and whose sign was backwards.
+
+    private void OnGripPressed(object? sender, PointerPressedEventArgs e)
+    {
+        if (sender is Border { DataContext: DownloadColumnViewModel column } grip
+            && e.GetCurrentPoint(grip).Properties.IsLeftButtonPressed)
+        {
+            _resizeColumn = column;
+            _resizeStartX = e.GetPosition(this).X;
+            _resizeStartWidth = column.Width;
+            e.Pointer.Capture(grip);
+            e.Handled = true;
+        }
+    }
+
+    private void OnGripMoved(object? sender, PointerEventArgs e)
+    {
+        if (_resizeColumn is null)
+            return;
+
+        var offset = e.GetPosition(this).X - _resizeStartX;
+        _resizeColumn.Width = System.Math.Max(MinColumnWidth, _resizeStartWidth + offset);
+        e.Handled = true;
+    }
+
+    private void OnGripReleased(object? sender, PointerReleasedEventArgs e)
+    {
+        if (_resizeColumn is null)
+            return;
+
+        _resizeColumn = null;
+        e.Pointer.Capture(null);
+        e.Handled = true;
+    }
+
+    // --- header drag-to-reorder (issue #19) -------------------------------------------------
+    // A press that turns into a horizontal drag reorders the column; a press that stays put
+    // falls through to the header Button's click-to-sort.
+
+    private void OnHeaderPointerPressed(object? sender, PointerPressedEventArgs e)
+    {
+        // A press on the resize grip is a resize, not a reorder.
+        if (e.Source is Visual v
+            && v.GetSelfAndVisualAncestors().OfType<Border>().Any(b => b.Classes.Contains("colGrip")))
+        {
+            return;
+        }
+
+        if (ColumnFromSource(e.Source) is { CanReorder: true } column
+            && e.GetCurrentPoint(this).Properties.IsLeftButtonPressed)
+        {
+            _dragColumn = column;
+            _dragStartX = e.GetPosition(this).X;
+            _dragging = false;
+        }
+    }
+
+    private void OnHeaderPointerMoved(object? sender, PointerEventArgs e)
+    {
+        if (_dragColumn is not null && !_dragging
+            && System.Math.Abs(e.GetPosition(this).X - _dragStartX) > DragThreshold)
+        {
+            _dragging = true;
+        }
+    }
+
+    private void OnHeaderPointerReleased(object? sender, PointerReleasedEventArgs e)
+    {
+        if (_dragColumn is not null && _dragging && DataContext is DownloadListViewModel vm)
+        {
+            var target = TrailingHeaderColumnAt(e.GetPosition(TrailingHeaders).X, vm);
+            if (target is not null)
+                vm.Columns.MoveColumnBefore(_dragColumn, target);
+
+            // Swallow the release so the header Button underneath doesn't also fire its
+            // click-to-sort at the end of a drag.
+            e.Handled = true;
+        }
+
+        _dragColumn = null;
+        _dragging = false;
+    }
+
+    private static DownloadColumnViewModel? ColumnFromSource(object? source) =>
+        (source as StyledElement)?.DataContext as DownloadColumnViewModel;
+
+    /// <summary>Which visible trailing column the given x offset (within the trailing-header
+    /// strip) falls over, by accumulating column widths.</summary>
+    private static DownloadColumnViewModel? TrailingHeaderColumnAt(double x, DownloadListViewModel vm)
+    {
+        var acc = 0.0;
+        foreach (var column in vm.Columns.VisibleTrailingColumns)
+        {
+            acc += column.Width;
+            if (x < acc)
+                return column;
+        }
+
+        return vm.Columns.VisibleTrailingColumns.Count > 0
+            ? vm.Columns.VisibleTrailingColumns[^1]
+            : null;
     }
 }
