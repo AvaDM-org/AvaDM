@@ -81,13 +81,23 @@ public partial class App : Application
             // https://github.com/AvaloniaUI/Avalonia/issues/2994 and
             // https://github.com/AvaloniaUI/Avalonia/issues/18148 - TrayIconService.RestoreWindow
             // sets ShowInTaskbar back to true before the matching Show().
+            //
+            // This handler MUST be one-shot: Avalonia raises Window.Opened again on every Show()
+            // after a Hide(), not just the first time the window opens. A plain `window.Opened +=`
+            // subscription therefore re-runs Hide() in the middle of every tray restore of an
+            // autostart-launched instance - the window ends up hidden again, or half-mapped as
+            // exactly the blank decorated shell this whole workaround is meant to prevent. It
+            // unsubscribes itself so it only fires for the genuine first open at login.
             if (desktop.Args?.Contains("--minimized") == true)
             {
-                window.Opened += (_, _) =>
+                void HideOnFirstOpen(object? sender, EventArgs e)
                 {
+                    window.Opened -= HideOnFirstOpen;
                     window.Hide();
                     window.ShowInTaskbar = false;
-                };
+                }
+
+                window.Opened += HideOnFirstOpen;
             }
 
             var trayIcon = TrayIcon.GetIcons(this)![0];
