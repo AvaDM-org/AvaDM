@@ -256,19 +256,20 @@ public sealed partial class DownloadColumnsViewModel : ViewModelBase
             Columns.Move(from, to);
     }
 
-    /// <summary>Drops <paramref name="column"/> at <paramref name="displayIndex"/> among the
-    /// reorderable columns (0 = just after Name). Used by header drag-reorder.</summary>
-    public void MoveColumnToDisplayIndex(DownloadColumnViewModel? column, int displayIndex)
+    /// <summary>Moves <paramref name="column"/> to where <paramref name="target"/> currently sits
+    /// (Name is never displaced). Used by header drag-reorder - the view resolves which column
+    /// the pointer was dropped over.</summary>
+    public void MoveColumnBefore(DownloadColumnViewModel? column, DownloadColumnViewModel? target)
     {
-        if (column is null || !column.CanReorder)
+        if (column is null || target is null || column == target || !column.CanReorder)
             return;
 
-        var reorderable = Columns.Where(c => c.CanReorder).ToList();
-        displayIndex = Math.Clamp(displayIndex, 0, reorderable.Count - 1);
-
-        // +1 because Name occupies index 0 in Columns and is never in `reorderable`.
         var from = Columns.IndexOf(column);
-        var to = Math.Clamp(displayIndex + 1, 1, Columns.Count - 1);
+        var to = Columns.IndexOf(target);
+        if (from < 0 || to < 0)
+            return;
+
+        to = Math.Max(1, to);
         if (from != to)
             Columns.Move(from, to);
     }

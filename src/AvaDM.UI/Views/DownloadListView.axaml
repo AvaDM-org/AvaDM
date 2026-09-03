@@ -45,6 +45,23 @@
         <Style Selector="ListBox.downloads ListBoxItem:selected:pointerover /template/ ContentPresenter#PART_ContentPresenter">
             <Setter Property="Background" Value="{DynamicResource SelectionBrush}" />
         </Style>
+
+        <!-- Column-resize grip on the right edge of each header cell. -->
+        <Style Selector="Thumb.colGrip">
+            <Setter Property="Width" Value="6" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="Cursor" Value="SizeWestEast" />
+            <Setter Property="Template">
+                <ControlTemplate>
+                    <Border Background="{TemplateBinding Background}" HorizontalAlignment="Stretch">
+                        <Rectangle Width="1" Fill="{DynamicResource BorderBrush}" HorizontalAlignment="Right" />
+                    </Border>
+                </ControlTemplate>
+            </Setter>
+        </Style>
+        <Style Selector="Thumb.colGrip:pointerover /template/ Rectangle">
+            <Setter Property="Fill" Value="{DynamicResource PrimaryBrush}" />
+        </Style>
     </UserControl.Styles>
 
     <!-- Two-bar toolbar + columned table (docs/design.md; issue #19). Bar 1: search, the
@@ -120,7 +137,8 @@
                         </Button.ContextMenu>
                     </Button>
 
-                    <ItemsControl Grid.Column="2" ItemsSource="{Binding Columns.VisibleTrailingColumns}">
+                    <ItemsControl Grid.Column="2" x:Name="TrailingHeaders"
+                                  ItemsSource="{Binding Columns.VisibleTrailingColumns}">
                         <ItemsControl.ItemsPanel>
                             <ItemsPanelTemplate>
                                 <StackPanel Orientation="Horizontal" />
@@ -128,14 +146,21 @@
                         </ItemsControl.ItemsPanel>
                         <ItemsControl.ItemTemplate>
                             <DataTemplate x:DataType="vm:DownloadColumnViewModel">
-                                <Button Classes="columnHeader"
-                                        Width="{Binding Width}"
-                                        Command="{Binding SortCommand}">
-                                    <StackPanel Orientation="Horizontal" Spacing="{StaticResource SpaceXs}">
-                                        <TextBlock Text="{Binding Header}" TextTrimming="CharacterEllipsis" />
-                                        <TextBlock Text="{Binding SortGlyph}" />
-                                    </StackPanel>
-                                    <Button.ContextMenu>
+                                <Grid Width="{Binding Width}" ColumnDefinitions="*,Auto"
+                                      Background="Transparent"
+                                      PointerPressed="OnHeaderPointerPressed"
+                                      PointerMoved="OnHeaderPointerMoved"
+                                      PointerReleased="OnHeaderPointerReleased">
+                                    <Button Grid.Column="0" Classes="columnHeader"
+                                            Command="{Binding SortCommand}">
+                                        <StackPanel Orientation="Horizontal" Spacing="{StaticResource SpaceXs}">
+                                            <TextBlock Text="{Binding Header}" TextTrimming="CharacterEllipsis" />
+                                            <TextBlock Text="{Binding SortGlyph}" />
+                                        </StackPanel>
+                                    </Button>
+                                    <Thumb Grid.Column="1" Classes="colGrip"
+                                           DragDelta="OnHeaderGripDragDelta" />
+                                    <Grid.ContextMenu>
                                         <ContextMenu>
                                             <MenuItem Header="Move left" Command="{Binding MoveLeftCommand}" IsEnabled="{Binding CanReorder}" />
                                             <MenuItem Header="Move right" Command="{Binding MoveRightCommand}" IsEnabled="{Binding CanReorder}" />
@@ -144,8 +169,8 @@
                                                       ItemsSource="{Binding Owner.Columns}"
                                                       ItemContainerTheme="{StaticResource ColumnToggleItemTheme}" />
                                         </ContextMenu>
-                                    </Button.ContextMenu>
-                                </Button>
+                                    </Grid.ContextMenu>
+                                </Grid>
                             </DataTemplate>
                         </ItemsControl.ItemTemplate>
                     </ItemsControl>
