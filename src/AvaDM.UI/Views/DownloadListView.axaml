@@ -47,19 +47,17 @@
         </Style>
 
         <!-- Column-resize grip on the right edge of each header cell. -->
-        <Style Selector="Thumb.colGrip">
-            <Setter Property="Width" Value="6" />
+        <Style Selector="Border.colGrip">
+            <Setter Property="Width" Value="9" />
             <Setter Property="Background" Value="Transparent" />
             <Setter Property="Cursor" Value="SizeWestEast" />
-            <Setter Property="Template">
-                <ControlTemplate>
-                    <Border Background="{TemplateBinding Background}" HorizontalAlignment="Stretch">
-                        <Rectangle Width="1" Fill="{DynamicResource BorderBrush}" HorizontalAlignment="Right" />
-                    </Border>
-                </ControlTemplate>
-            </Setter>
         </Style>
-        <Style Selector="Thumb.colGrip:pointerover /template/ Rectangle">
+        <Style Selector="Border.colGrip > Rectangle">
+            <Setter Property="Width" Value="1" />
+            <Setter Property="HorizontalAlignment" Value="Right" />
+            <Setter Property="Fill" Value="{DynamicResource BorderBrush}" />
+        </Style>
+        <Style Selector="Border.colGrip:pointerover > Rectangle">
             <Setter Property="Fill" Value="{DynamicResource PrimaryBrush}" />
         </Style>
     </UserControl.Styles>
@@ -177,8 +175,12 @@
                                             <TextBlock Text="{Binding SortGlyph}" />
                                         </StackPanel>
                                     </Button>
-                                    <Thumb Grid.Column="1" Classes="colGrip"
-                                           DragDelta="OnHeaderGripDragDelta" />
+                                    <Border Grid.Column="1" Classes="colGrip"
+                                            PointerPressed="OnGripPressed"
+                                            PointerMoved="OnGripMoved"
+                                            PointerReleased="OnGripReleased">
+                                        <Rectangle />
+                                    </Border>
                                     <Grid.ContextMenu>
                                         <ContextMenu>
                                             <MenuItem Header="Move left" Command="{Binding MoveLeftCommand}" IsEnabled="{Binding CanReorder}" />

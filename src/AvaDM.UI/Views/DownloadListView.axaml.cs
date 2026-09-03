@@ -1,7 +1,6 @@
 using System.Linq;
 using Avalonia;
 using Avalonia.Controls;
-using Avalonia.Controls.Primitives;
 using Avalonia.Input;
 using Avalonia.Input.Platform;
 using Avalonia.Interactivity;
@@ -18,6 +17,10 @@ public partial class DownloadListView : UserControl
     private DownloadColumnViewModel? _dragColumn;
     private double _dragStartX;
     private bool _dragging;
+
+    private DownloadColumnViewModel? _resizeColumn;
+    private double _resizeStartX;
+    private double _resizeStartWidth;
 
     public DownloadListView()
     {
@@ -55,11 +58,42 @@ public partial class DownloadListView : UserControl
         }
     }
 
-    /// <summary>Column-resize grip drag: widen/narrow the column under the grip.</summary>
-    private void OnHeaderGripDragDelta(object? sender, VectorEventArgs e)
+    // --- column-resize grip (issue #19) ---------------------------------------------------
+    // Track the pointer against a stable coordinate space (this control) and set width from the
+    // total offset since the press - not an incremental delta, which fed the column's own layout
+    // shift back into itself and ran away, and whose sign was backwards.
+
+    private void OnGripPressed(object? sender, PointerPressedEventArgs e)
     {
-        if (sender is Control { DataContext: DownloadColumnViewModel column })
-            column.Width = System.Math.Max(MinColumnWidth, column.Width + e.Vector.X);
+        if (sender is Border { DataContext: DownloadColumnViewModel column } grip
+            && e.GetCurrentPoint(grip).Properties.IsLeftButtonPressed)
+        {
+            _resizeColumn = column;
+            _resizeStartX = e.GetPosition(this).X;
+            _resizeStartWidth = column.Width;
+            e.Pointer.Capture(grip);
+            e.Handled = true;
+        }
+    }
+
+    private void OnGripMoved(object? sender, PointerEventArgs e)
+    {
+        if (_resizeColumn is null)
+            return;
+
+        var offset = e.GetPosition(this).X - _resizeStartX;
+        _resizeColumn.Width = System.Math.Max(MinColumnWidth, _resizeStartWidth + offset);
+        e.Handled = true;
+    }
+
+    private void OnGripReleased(object? sender, PointerReleasedEventArgs e)
+    {
+        if (_resizeColumn is null)
+            return;
+
+        _resizeColumn = null;
+        e.Pointer.Capture(null);
+        e.Handled = true;
     }
 
     // --- header drag-to-reorder (issue #19) -------------------------------------------------
@@ -69,8 +103,11 @@ public partial class DownloadListView : UserControl
     private void OnHeaderPointerPressed(object? sender, PointerPressedEventArgs e)
     {
         // A press on the resize grip is a resize, not a reorder.
-        if (e.Source is Visual v && v.GetSelfAndVisualAncestors().OfType<Thumb>().Any())
+        if (e.Source is Visual v
+            && v.GetSelfAndVisualAncestors().OfType<Border>().Any(b => b.Classes.Contains("colGrip")))
+        {
             return;
+        }
 
         if (ColumnFromSource(e.Source) is { CanReorder: true } column
             && e.GetCurrentPoint(this).Properties.IsLeftButtonPressed)
