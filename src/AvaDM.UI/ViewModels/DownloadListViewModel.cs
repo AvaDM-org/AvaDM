@@ -233,6 +233,17 @@ public sealed partial class DownloadListViewModel : ViewModelBase, IDisposable
             () => OnRemoveConfirmed(row),
             OnRemoveCancelled);
 
+    /// <summary>Context-menu "Remove" on a row: the view has already ensured <paramref name="row"/>
+    /// is selected, so route to the bulk dialog when more than one row is selected and the plain
+    /// single-row dialog otherwise.</summary>
+    private void RequestContextRemove(DownloadRowViewModel row)
+    {
+        if (SelectedDownloads.Count > 1 && SelectedDownloads.Contains(row))
+            BulkRemove();
+        else
+            RequestRemove(row);
+    }
+
     private void OnRemoveConfirmed(DownloadRowViewModel row)
     {
         RemoveRow(row.Id);
@@ -286,7 +297,7 @@ public sealed partial class DownloadListViewModel : ViewModelBase, IDisposable
         }
 
         var row = new DownloadRowViewModel(
-            _downloadManager, Columns, record, handle, RequestRemove, RequestCancel, ShowToast, _getDoubleClickAction);
+            _downloadManager, Columns, record, handle, RequestRemove, RequestContextRemove, RequestCancel, ShowToast, _getDoubleClickAction);
         _allRows.Add(row);
         TrackRow(row);
         ApplyFilter();
@@ -349,6 +360,7 @@ public sealed partial class DownloadListViewModel : ViewModelBase, IDisposable
                         record,
                         _downloadManager.GetActiveHandle(record.Id),
                         RequestRemove,
+                        RequestContextRemove,
                         RequestCancel,
                         ShowToast,
                         _getDoubleClickAction);

@@ -61,6 +61,7 @@ public sealed partial class DownloadRowViewModel : ViewModelBase
     private readonly DownloadManager _downloadManager;
     private readonly DownloadColumnsViewModel _columns;
     private readonly Action<DownloadRowViewModel> _onRemoveRequested;
+    private readonly Action<DownloadRowViewModel> _onContextRemoveRequested;
     private readonly Action<DownloadRowViewModel> _onCancelRequested;
     private readonly Action<string> _onLogMessage;
     private readonly Func<DownloadDoubleClickAction> _getDoubleClickAction;
@@ -179,6 +180,7 @@ public sealed partial class DownloadRowViewModel : ViewModelBase
         DownloadRecord record,
         DownloadHandle? handle,
         Action<DownloadRowViewModel> onRemoveRequested,
+        Action<DownloadRowViewModel> onContextRemoveRequested,
         Action<DownloadRowViewModel> onCancelRequested,
         Action<string> onLogMessage,
         Func<DownloadDoubleClickAction> getDoubleClickAction)
@@ -186,6 +188,7 @@ public sealed partial class DownloadRowViewModel : ViewModelBase
         _downloadManager = downloadManager;
         _columns = columns;
         _onRemoveRequested = onRemoveRequested;
+        _onContextRemoveRequested = onContextRemoveRequested;
         _onCancelRequested = onCancelRequested;
         _onLogMessage = onLogMessage;
         _getDoubleClickAction = getDoubleClickAction;
@@ -475,6 +478,21 @@ public sealed partial class DownloadRowViewModel : ViewModelBase
 
     [RelayCommand]
     private void Remove() => _onRemoveRequested(this);
+
+    /// <summary>Context-menu "Remove": acts on the whole current selection (the view has already
+    /// made sure this row is part of it) - the list view model picks the single- or bulk-remove
+    /// dialog by how many rows are selected.</summary>
+    [RelayCommand]
+    private void ContextRemove() => _onContextRemoveRequested(this);
+
+    /// <summary>Context-menu "Open file" - always opens the file itself (unlike the double-click
+    /// gesture, which follows the Settings "double-click action" choice).</summary>
+    [RelayCommand(CanExecute = nameof(CanOpenDownload))]
+    private void OpenFile()
+    {
+        if (!FileLauncher.OpenFile(DestinationPath))
+            _onLogMessage($"Couldn't open \"{FileName}\" - it may have been moved or deleted.");
+    }
 
     /// <summary>Double-click behavior for a completed row, per the Settings page's
     /// "Downloaded item double-click" choice - either open the file itself or reveal its

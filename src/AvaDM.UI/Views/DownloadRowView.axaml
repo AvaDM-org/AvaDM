@@ -17,7 +17,17 @@
          Settings), ignoring taps on the row's own buttons - see OnHeaderDoubleTapped. -->
     <Border BorderBrush="{DynamicResource BorderBrush}"
             BorderThickness="0,0,0,1"
-            Background="Transparent">
+            Background="Transparent"
+            ContextRequested="OnContextRequested">
+        <Border.ContextMenu>
+            <ContextMenu>
+                <MenuItem Header="Open file" Command="{Binding OpenFileCommand}" />
+                <MenuItem Header="Open containing folder" Command="{Binding OpenContainingFolderCommand}" />
+                <MenuItem Header="Copy download link" Click="OnCopyLink" />
+                <Separator />
+                <MenuItem Header="Remove" Command="{Binding ContextRemoveCommand}" />
+            </ContextMenu>
+        </Border.ContextMenu>
         <Grid ColumnDefinitions="Auto,*,Auto"
               Margin="{StaticResource RowPadding}"
               DoubleTapped="OnHeaderDoubleTapped">
