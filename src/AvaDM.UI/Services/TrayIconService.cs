@@ -223,9 +223,11 @@ public sealed class TrayIconService
     /// a second launch signals this instance instead of starting its own.</summary>
     public void RestoreWindow()
     {
-        // ShowInTaskbar back to true before Show() - the other half of the workaround documented
-        // on the Hide() calls in this class and in App.axaml.cs, for the Avalonia rendering bug
-        // that otherwise leaves the restored window blank on Linux/macOS.
+        // ShowInTaskbar back to true before Show() - the other half of the workaround
+        // documented on the Hide() calls in this class, for the Avalonia rendering bug that
+        // otherwise leaves a hidden-then-reshown window blank on Linux/macOS (#2994, #18148).
+        // A --minimized login start never hides the window (App.axaml.cs just doesn't show
+        // it), so this is a no-op there and the first Show() renders cleanly on its own.
         _window.ShowInTaskbar = true;
         _window.Show();
         _window.WindowState = WindowState.Normal;
@@ -245,9 +247,8 @@ public sealed class TrayIconService
     {
         if (_window.IsVisible && _window.WindowState != WindowState.Minimized)
         {
-            // See App.axaml.cs's --minimized handling for why ShowInTaskbar is toggled alongside
-            // Hide()/Show() - same Avalonia rendering-after-restore bug applies to this manual
-            // toggle, not just the autostart path.
+            // See RestoreWindow for why ShowInTaskbar is toggled alongside Hide()/Show() - the
+            // Avalonia rendering-after-restore bug applies to this manual toggle too.
             _window.Hide();
             _window.ShowInTaskbar = false;
         }
@@ -259,12 +260,26 @@ public sealed class TrayIconService
 
     private void OnWindowClosing(object? sender, WindowClosingEventArgs e)
     {
-        if (_isExiting || !_settings.CloseToTray)
+        // Only a user closing the window itself is redirected to the tray. A shutdown -
+        // the OS session manager on logout/reboot (WindowCloseReason.OSShutdown), or
+        // Avalonia tearing the app down (ApplicationShutdown) - raises this too, and
+        // cancelling it there is what makes KDE/GNOME abort the logout with "Logout
+        // canceled by ''". Those must be allowed through.
+        if (e.CloseReason != WindowCloseReason.WindowClosing || _isExiting)
             return;
 
-        e.Cancel = true;
-        _window.Hide();
-        _window.ShowInTaskbar = false;
+        if (_settings.CloseToTray)
+        {
+            e.Cancel = true;
+            _window.Hide();
+            _window.ShowInTaskbar = false;
+            return;
+        }
+
+        // Close-to-tray disabled: the window really is going away. ShutdownMode is
+        // OnExplicitShutdown (see App.axaml.cs), so closing the last window no longer ends
+        // the process on its own - do it here.
+        RequestExit();
     }
 
     /// <summary>The tray menu's own Exit item - always performs a real shutdown, bypassing the

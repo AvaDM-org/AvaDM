@@ -15,13 +15,19 @@ fail fast if its version has no section here**. Add the entry before pushing the
 
 ### Fixed
 
-- **Restoring the window from the tray on a login-started (autostart) instance left a blank,
-  content-less window** on Linux and macOS - just a titlebar and frame with the desktop showing
-  through, exactly the symptom [1.2.2](#122---2026-08-31) was supposed to have fixed. The
-  `--minimized` startup handler that hides the window at login stayed subscribed to Avalonia's
-  `Window.Opened` event, which fires again on *every* `Show()` - so each tray restore re-ran the
-  hide in the middle of restoring. It's now a one-shot that only fires for the real first open at
-  login.
+- **A login-started (autostart) instance left a blank, content-less window** on Linux - just a
+  titlebar and frame with the desktop showing through, whose close button did nothing (only the
+  tray menu's Exit could get rid of it), exactly the symptom [1.2.2](#122---2026-08-31) and the
+  first attempt at this fix both failed to solve. The `--minimized` login launch showed the main
+  window and then hid it again immediately; on Linux an Avalonia window hidden before it has ever
+  rendered comes back from a later `Show()` permanently unpainted and unresponsive. A `--minimized`
+  launch now never shows the window at all, so the first time it opens (from the tray) is a genuine
+  first paint.
+
+- **AvaDM running blocked the system from logging out, rebooting, or shutting down**, with the
+  desktop reporting "Logout canceled by ''". The window's minimize-to-tray handler cancelled
+  *every* close request, including the one the session manager sends each window on logout. It now
+  only redirects a genuine user close to the tray and lets shutdown close the window normally.
 
 ## [1.3.0] - 2026-08-31
 

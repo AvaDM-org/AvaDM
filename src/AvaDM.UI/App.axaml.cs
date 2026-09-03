@@ -63,41 +63,34 @@ public partial class App : Application
                 downloadManager, settings, uiPreferences, closeToTray, doubleClickAction,
                 autoUpdateEnabled, updateService, () => desktop.Shutdown());
             var window = new MainWindow { DataContext = mainWindowViewModel };
-            desktop.MainWindow = window;
 
-            // Set by AutoStartService's registered autostart command so a login-triggered launch
-            // starts hidden in the tray instead of popping the main window. Avalonia's classic
-            // desktop lifetime shows desktop.MainWindow unconditionally once this method returns,
-            // so hiding it in the Opened handler (rather than skipping the MainWindow assignment
-            // above) is what avoids that - it costs a brief window flash instead of a more
-            // invasive change to how MainWindow/TrayIconService are wired up.
+            // AvaDM lives in the tray, so the process has to outlive its last window: a
+            // close-to-tray hide, the tray icon's show/hide toggle, and a --minimized login
+            // start that never shows a window at all would all otherwise trip Avalonia's
+            // default OnLastWindowClose and quit the app. Every genuine exit now goes through
+            // desktop.Shutdown() explicitly - TrayIconService's Exit item, the in-app quit,
+            // a window close while close-to-tray is disabled (TrayIconService.OnWindowClosing),
+            // or the OS session manager on logout/reboot.
+            desktop.ShutdownMode = ShutdownMode.OnExplicitShutdown;
+
+            // AutoStartService registers its login command with --minimized so a launch at
+            // login starts hidden in the tray. Earlier builds assigned the window as MainWindow
+            // (which Avalonia's classic desktop lifetime shows unconditionally) and then hid it
+            // again from Window.Opened. On Linux that leaves the window permanently unrendered:
+            // a bare titlebar-and-frame shell with the desktop showing straight through it,
+            // whose close button - and the session manager's close request on logout, which is
+            // why a reboot then fails with "Logout canceled" - both go unanswered
+            // (AvaloniaUI/Avalonia#2994, #18148). The ShowInTaskbar toggle only rescues a window
+            // that rendered once before being hidden, not one hidden before it ever drew.
             //
-            // ShowInTaskbar = false right after Hide() works around a real Avalonia rendering bug
-            // on Linux (and, per the upstream reports, macOS) where a window hidden this way comes
-            // back from the next Show() with no content ever drawn - visible on the desktop only as
-            // an inert, blank taskbar/dock entry the user has to close by hand, since there's
-            // nothing on screen to interact with. Windows already hides the taskbar entry itself
-            // when the window is hidden, so this is a no-op there. See
-            // https://github.com/AvaloniaUI/Avalonia/issues/2994 and
-            // https://github.com/AvaloniaUI/Avalonia/issues/18148 - TrayIconService.RestoreWindow
-            // sets ShowInTaskbar back to true before the matching Show().
-            //
-            // This handler MUST be one-shot: Avalonia raises Window.Opened again on every Show()
-            // after a Hide(), not just the first time the window opens. A plain `window.Opened +=`
-            // subscription therefore re-runs Hide() in the middle of every tray restore of an
-            // autostart-launched instance - the window ends up hidden again, or half-mapped as
-            // exactly the blank decorated shell this whole workaround is meant to prevent. It
-            // unsubscribes itself so it only fires for the genuine first open at login.
-            if (desktop.Args?.Contains("--minimized") == true)
+            // So a --minimized launch simply never shows the window: it isn't assigned as
+            // MainWindow, and its first Show() - when the user opens it from the tray - is a
+            // genuine first map that paints normally. A normal launch is assigned as MainWindow
+            // and shown the usual way.
+            var startMinimized = desktop.Args?.Contains("--minimized") == true;
+            if (!startMinimized)
             {
-                void HideOnFirstOpen(object? sender, EventArgs e)
-                {
-                    window.Opened -= HideOnFirstOpen;
-                    window.Hide();
-                    window.ShowInTaskbar = false;
-                }
-
-                window.Opened += HideOnFirstOpen;
+                desktop.MainWindow = window;
             }
 
             var trayIcon = TrayIcon.GetIcons(this)![0];
