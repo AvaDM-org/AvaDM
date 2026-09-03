@@ -160,12 +160,20 @@ public sealed partial class DownloadRowViewModel : ViewModelBase
     /// converter-free-view-model convention (see <c>Converters/FormatHelpers.cs</c>).</summary>
     public bool HasLastError => !string.IsNullOrEmpty(LastError);
 
+    private const decimal BytesPerMegabyte = 1024 * 1024;
+
+    /// <summary>Last non-null limit the user set, in MB/s - so toggling Unlimited off restores it
+    /// rather than jumping to a default.</summary>
+    private decimal _lastLimitMegabytes = 1m;
+
     /// <summary>Speed-limit for this download, in bytes/sec (<c>null</c> = unlimited). Edited from
     /// the Speed column cell and applied to the live handle immediately on change (see
     /// <see cref="OnSpeedLimitBytesPerSecondChanged"/>), since <see cref="DownloadHandle.SetSpeedLimit"/>
     /// is cheap to call repeatedly.</summary>
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(SpeedLimitDisplayText))]
+    [NotifyPropertyChangedFor(nameof(SpeedLimitUnlimited))]
+    [NotifyPropertyChangedFor(nameof(SpeedLimitMegabytes))]
     private long? _speedLimitBytesPerSecond;
 
     /// <summary>Secondary line under the current speed in the Speed cell: the active limit, or
@@ -173,6 +181,28 @@ public sealed partial class DownloadRowViewModel : ViewModelBase
     public string SpeedLimitDisplayText => SpeedLimitBytesPerSecond is { } bytesPerSecond
         ? $"limit {FormatHelpers.FormatBytes(bytesPerSecond)}/s"
         : "no limit";
+
+    /// <summary>The Speed-cell flyout's "Unlimited" toggle. Off restores the last MB/s value.</summary>
+    public bool SpeedLimitUnlimited
+    {
+        get => SpeedLimitBytesPerSecond is null;
+        set => SpeedLimitBytesPerSecond = value
+            ? null
+            : (long)Math.Max(1m, Math.Round(_lastLimitMegabytes * BytesPerMegabyte));
+    }
+
+    /// <summary>The Speed-cell flyout's MB/s spinner. Setting it while a limit is active applies
+    /// immediately; while Unlimited it's just remembered for when the toggle is turned off.</summary>
+    public decimal? SpeedLimitMegabytes
+    {
+        get => SpeedLimitBytesPerSecond is { } bytes ? (decimal)bytes / BytesPerMegabyte : _lastLimitMegabytes;
+        set
+        {
+            _lastLimitMegabytes = value is { } v && v > 0m ? v : 0.1m;
+            if (SpeedLimitBytesPerSecond is not null)
+                SpeedLimitBytesPerSecond = (long)Math.Max(1m, Math.Round(_lastLimitMegabytes * BytesPerMegabyte));
+        }
+    }
 
     /// <summary>Per-connection snapshots feeding the name cell's segmented progress bar.</summary>
     public ObservableCollection<ChunkRowViewModel> Chunks { get; } = new();

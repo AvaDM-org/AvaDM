@@ -139,13 +139,29 @@
                                         </StackPanel>
                                         <Button.Flyout>
                                             <Flyout Placement="Bottom">
-                                                <StackPanel Spacing="{StaticResource SpaceSm}" Width="230">
-                                                    <TextBlock Text="Speed limit"
-                                                               FontSize="{StaticResource LabelSmFontSize}"
-                                                               FontWeight="{StaticResource LabelSmFontWeight}"
-                                                               Foreground="{DynamicResource TextSecondaryBrush}" />
-                                                    <controls:SpeedLimitEditor
-                                                        SpeedLimitBytesPerSecond="{Binding Row.SpeedLimitBytesPerSecond, Mode=TwoWay}" />
+                                                <StackPanel Spacing="{StaticResource SpaceSm}" Width="200">
+                                                    <Grid ColumnDefinitions="*,Auto" VerticalAlignment="Center">
+                                                        <TextBlock Grid.Column="0" Text="Speed limit"
+                                                                   VerticalAlignment="Center"
+                                                                   FontSize="{StaticResource LabelSmFontSize}"
+                                                                   FontWeight="{StaticResource LabelSmFontWeight}"
+                                                                   Foreground="{DynamicResource TextSecondaryBrush}" />
+                                                        <CheckBox Grid.Column="1" Content="Unlimited"
+                                                                  IsChecked="{Binding Row.SpeedLimitUnlimited, Mode=TwoWay}"
+                                                                  FontSize="{StaticResource LabelSmFontSize}"
+                                                                  Foreground="{DynamicResource TextSecondaryBrush}"
+                                                                  VerticalAlignment="Center" />
+                                                    </Grid>
+                                                    <StackPanel Orientation="Horizontal"
+                                                                Spacing="{StaticResource SpaceSm}"
+                                                                IsEnabled="{Binding !Row.SpeedLimitUnlimited}">
+                                                        <NumericUpDown Value="{Binding Row.SpeedLimitMegabytes, Mode=TwoWay}"
+                                                                       Minimum="0.1" Maximum="10000" Increment="0.5"
+                                                                       FormatString="0.##" Width="120"
+                                                                       VerticalAlignment="Center" />
+                                                        <TextBlock Text="MB/s" VerticalAlignment="Center"
+                                                                   Foreground="{DynamicResource TextSecondaryBrush}" />
+                                                    </StackPanel>
                                                 </StackPanel>
                                             </Flyout>
                                         </Button.Flyout>
