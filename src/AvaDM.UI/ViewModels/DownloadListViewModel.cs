@@ -7,19 +7,10 @@ using CommunityToolkit.Mvvm.Input;
 
 namespace AvaDM.UI.ViewModels;
 
-/// <summary>Status filter for the downloads list toolbar.</summary>
-public enum DownloadListStatusFilter
-{
-    All,
-    Active,
-    Completed,
-    Failed,
-}
-
 /// <summary>
 /// Downloads list page: the full set of persisted downloads (each optionally backed by a live
-/// <see cref="DownloadHandle"/> when active in this process), a status filter + text search over
-/// the visible subset, and a periodic reconciliation poll that keeps the list in sync with
+/// <see cref="DownloadHandle"/> when active in this process), a text search over the visible
+/// subset, and a periodic reconciliation poll that keeps the list in sync with
 /// downloads started/finished/removed elsewhere (or, after a restart, downloads this process
 /// hasn't touched yet - see <see cref="DownloadRowViewModel"/>'s derived Interrupted status).
 ///
@@ -80,13 +71,6 @@ public sealed partial class DownloadListViewModel : ViewModelBase, IDisposable
     public ObservableCollection<ToastViewModel> Toasts { get; } = new();
 
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(IsFilterAll))]
-    [NotifyPropertyChangedFor(nameof(IsFilterActive))]
-    [NotifyPropertyChangedFor(nameof(IsFilterCompleted))]
-    [NotifyPropertyChangedFor(nameof(IsFilterFailed))]
-    private DownloadListStatusFilter _statusFilter = DownloadListStatusFilter.All;
-
-    [ObservableProperty]
     private string _searchText = string.Empty;
 
     /// <summary>Non-null while the Add Download overlay is open; a fresh instance is created
@@ -116,19 +100,6 @@ public sealed partial class DownloadListViewModel : ViewModelBase, IDisposable
 
     public bool IsCancelConfirmationOpen => ActiveCancelConfirmation is not null;
 
-    /// <summary>Selected-state flags for the toolbar's filter tabs, one per
-    /// <see cref="DownloadListStatusFilter"/> value. AXAML has no direct way to bind a style
-    /// class to a view-model bool, so each tab is two overlaid buttons (selected/unselected
-    /// styling) toggled by these - the same pattern already used for the row expand/collapse
-    /// glyph in <c>DownloadRowView.axaml</c>.</summary>
-    public bool IsFilterAll => StatusFilter == DownloadListStatusFilter.All;
-
-    public bool IsFilterActive => StatusFilter == DownloadListStatusFilter.Active;
-
-    public bool IsFilterCompleted => StatusFilter == DownloadListStatusFilter.Completed;
-
-    public bool IsFilterFailed => StatusFilter == DownloadListStatusFilter.Failed;
-
     public DownloadListViewModel(
         DownloadManager downloadManager,
         DownloadSettings settings,
@@ -156,9 +127,6 @@ public sealed partial class DownloadListViewModel : ViewModelBase, IDisposable
 
     [RelayCommand]
     private void OpenSettings() => _navigateToSettings();
-
-    [RelayCommand]
-    private void SetStatusFilter(DownloadListStatusFilter filter) => StatusFilter = filter;
 
     /// <summary>Opens the Add Download overlay with a fresh view model wired to close itself
     /// (submitted or cancelled) via the two callbacks below.</summary>
@@ -211,12 +179,6 @@ public sealed partial class DownloadListViewModel : ViewModelBase, IDisposable
     private void OnCancelConfirmed() => ActiveCancelConfirmation = null;
 
     private void OnCancelDismissed() => ActiveCancelConfirmation = null;
-
-    partial void OnStatusFilterChanged(DownloadListStatusFilter value)
-    {
-        _ = value;
-        ApplyFilter();
-    }
 
     partial void OnSearchTextChanged(string value)
     {
@@ -345,7 +307,7 @@ public sealed partial class DownloadListViewModel : ViewModelBase, IDisposable
     private void ApplyFilter()
     {
         var search = SearchText.Trim();
-        var matches = _allRows.Where(MatchesStatusFilter).Where(r => MatchesSearch(r, search)).ToList();
+        var matches = _allRows.Where(r => MatchesSearch(r, search)).ToList();
 
         for (var i = FilteredDownloads.Count - 1; i >= 0; i--)
         {
@@ -364,16 +326,6 @@ public sealed partial class DownloadListViewModel : ViewModelBase, IDisposable
             }
         }
     }
-
-    private bool MatchesStatusFilter(DownloadRowViewModel row) => StatusFilter switch
-    {
-        DownloadListStatusFilter.All => true,
-        DownloadListStatusFilter.Active => row.DisplayStatus is DownloadDisplayStatus.Running
-            or DownloadDisplayStatus.Paused or DownloadDisplayStatus.Pending or DownloadDisplayStatus.Interrupted,
-        DownloadListStatusFilter.Completed => row.DisplayStatus == DownloadDisplayStatus.Completed,
-        DownloadListStatusFilter.Failed => row.DisplayStatus == DownloadDisplayStatus.Failed,
-        _ => true,
-    };
 
     private static bool MatchesSearch(DownloadRowViewModel row, string search) =>
         string.IsNullOrEmpty(search)
