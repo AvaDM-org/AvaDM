@@ -97,15 +97,16 @@ The console app uses Terminal.Gui 2.x rather than the old hand-rolled cursor-pos
 **Everything gets an issue first.** Before any code change — bug, feature, refactor, doc fix, chore — open a GitHub issue in `AvaDM-org/AvaDM` with `gh issue create` so there's a tracked record. Use a label that fits (`bug`, `enhancement`, `documentation`, …). The issue comes before the branch; the branch and PR both reference it.
 
 1. Open the issue (see above), then branch off up-to-date `master` as `<type>/<issue-number>-<short-slug>` (e.g. `fix/10-download-bar-jitter`), `<type>` matching the commit prefix below.
-2. Develop and test on that branch. Commit with Conventional Commits (`fix(core): ...`, `feat(ui): ...`, `test(core): ...`), **one small commit per logical step** — never a single big catch-all commit. Build and run the tests before each commit.
+2. Develop and test on that branch. Commit with Conventional Commits (`fix(core): ...`, `feat(ui): ...`, `test(core): ...`), **one small commit per logical step** — never a single big catch-all commit. Build and run the tests before each commit. Add the change to `CHANGELOG.md` under the current next-release section (see below).
 3. Open a PR against `master` with `gh pr create`, referencing the issue (e.g. "Fixes #10").
-4. **Wait for the user to test.** Do not push a release, tag, or merge on your own initiative. The user tests the branch and tells you when it's good.
-5. Once the user confirms, do the steps **in this order** so CI publishes the right thing:
-   1. `git push` any final commits to the PR branch.
-   2. If this is going out as a release: rename `CHANGELOG.md`'s `## [Unreleased]` to `## [X.Y.Z] - <date>` in a small commit on the PR branch (ask the user for the version if it isn't obvious from semver + the changes), and push that too — the tagged commit on `master` must already contain its own changelog section or `release.yml` fails.
-   3. Merge the PR into `master` (the user merges via the GitHub UI unless they explicitly ask this session to merge).
-   4. Fast-forward local `master`: `git fetch && git checkout master && git merge --ff-only origin/master`.
-   5. Only if the user asked for a release: `git tag vX.Y.Z && git push origin vX.Y.Z` — pointing at the now-merged commit on `master`. Never tag the branch before it merges, or CI builds a release from unmerged code.
+4. **Wait for the user to test.** Do not tag, or merge on your own initiative. The user tests the branch and tells you when it's good and whether to merge.
+5. Once the user confirms, `git push` any final commits, merge the PR into `master` (the user merges via the GitHub UI unless they explicitly ask this session to merge), then fast-forward local `master`: `git fetch && git checkout master && git merge --ff-only origin/master`.
+
+### Changelog and releasing
+
+- A release usually bundles **several merged PRs**. The changelog section for the next release is opened as `## [X.Y.Z] - Unreleased` as soon as the first change since the last tag lands, and every PR after that adds its entry there. Ask the user for the target version when opening the section if it isn't obvious.
+- Merging a PR **never** triggers a release — `release.yml` only fires on a `vX.Y.Z` tag push.
+- **Only when the user explicitly asks to cut the release:** open a tiny `chore/release-X.Y.Z` branch that swaps that section's `Unreleased` for the date, PR it, merge it, fast-forward `master`, then `git tag vX.Y.Z && git push origin vX.Y.Z` on that merged commit. The tag must point at a commit already on `master` that contains its own dated changelog section, or the release build fails.
 
 ## Notes
 
