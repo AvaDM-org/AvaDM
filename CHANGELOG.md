@@ -9,9 +9,10 @@ Each released version below has a matching `vX.Y.Z` git tag. `.github/workflows/
 the section for the tag it is building and uses it as the GitHub Release notes, so **a release will
 fail fast if its version has no section here**. Add the entry before pushing the tag.
 
-## [1.4.0] - Unreleased
+## [2.0.0] - 2026-09-03
 
-_Accumulating several PRs; the release date and `v1.4.0` tag are set once the batch is complete._
+The Downloads page has been rebuilt as a file-explorer-style table — a large enough change to
+the primary screen to warrant a major version bump.
 
 ### Changed
 
@@ -230,7 +231,12 @@ First release.
 - Packaging for six formats: Windows installer and portable zip, Linux tar.gz, AppImage and `.deb`,
   and macOS `.dmg` (x64 and arm64).
 
-[Unreleased]: https://github.com/AvaDM-org/AvaDM/compare/v1.2.0...HEAD
+[Unreleased]: https://github.com/AvaDM-org/AvaDM/compare/v2.0.0...HEAD
+[2.0.0]: https://github.com/AvaDM-org/AvaDM/compare/v1.3.1...v2.0.0
+[1.3.1]: https://github.com/AvaDM-org/AvaDM/compare/v1.3.0...v1.3.1
+[1.3.0]: https://github.com/AvaDM-org/AvaDM/compare/v1.2.2...v1.3.0
+[1.2.2]: https://github.com/AvaDM-org/AvaDM/compare/v1.2.1...v1.2.2
+[1.2.1]: https://github.com/AvaDM-org/AvaDM/compare/v1.2.0...v1.2.1
 [1.2.0]: https://github.com/AvaDM-org/AvaDM/compare/v1.1.2...v1.2.0
 [1.1.2]: https://github.com/AvaDM-org/AvaDM/compare/v1.1.1...v1.1.2
 [1.1.1]: https://github.com/AvaDM-org/AvaDM/compare/v1.1.0...v1.1.1
