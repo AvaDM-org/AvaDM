@@ -79,7 +79,13 @@ public class Downloader
          !File.Exists(path) &&
          !File.Exists(path + WorkingFileSuffix));
 
-    private static string FileNameFromUri(Uri uri)
+    private static string FileNameFromUri(Uri uri) => SuggestFileName(uri);
+
+    /// <summary>The on-disk file name the engine would pick for <paramref name="uri"/> when the
+    /// caller gives only a directory (or nothing) as the destination: the last URL path segment,
+    /// or <c>"download"</c> when the URL has no usable segment. Public so the UI's Add Download
+    /// form can pre-fill an editable file-name field with the same value the engine would use.</summary>
+    public static string SuggestFileName(Uri uri)
     {
         var name = Path.GetFileName(uri.LocalPath);
         return string.IsNullOrEmpty(name) ? FallbackFileName : name;
