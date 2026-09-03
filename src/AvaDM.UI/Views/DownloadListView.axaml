@@ -8,6 +8,20 @@
              x:Class="AvaDM.UI.Views.DownloadListView"
              x:DataType="vm:DownloadListViewModel">
 
+    <UserControl.Resources>
+        <!-- Checkable column entries for the header context menu's "Show columns" submenu -
+             one per column, checked = visible, disabled for the pinned Name column. -->
+        <ControlTheme x:Key="ColumnToggleItemTheme" TargetType="MenuItem"
+                      x:DataType="vm:DownloadColumnViewModel"
+                      BasedOn="{StaticResource {x:Type MenuItem}}">
+            <Setter Property="Header" Value="{Binding Header}" />
+            <Setter Property="ToggleType" Value="CheckBox" />
+            <Setter Property="IsChecked" Value="{Binding IsVisible, Mode=TwoWay}" />
+            <Setter Property="IsEnabled" Value="{Binding CanHide}" />
+            <Setter Property="StaysOpenOnClick" Value="True" />
+        </ControlTheme>
+    </UserControl.Resources>
+
     <UserControl.Styles>
         <!-- Full-bleed table rows: no item padding/rounding, a flat surface-alt hover, and the
              primary-tinted SelectionBrush for a selected row (issue #19). -->
@@ -88,11 +102,22 @@
 
                     <Button Grid.Column="1"
                             Classes="columnHeader"
-                            Command="{Binding Columns.NameColumn.SortCommand}">
+                            DataContext="{Binding Columns.NameColumn}"
+                            Command="{Binding SortCommand}">
                         <StackPanel Orientation="Horizontal" Spacing="{StaticResource SpaceXs}">
-                            <TextBlock Text="{Binding Columns.NameColumn.Header}" />
-                            <TextBlock Text="{Binding Columns.NameColumn.SortGlyph}" />
+                            <TextBlock Text="{Binding Header}" />
+                            <TextBlock Text="{Binding SortGlyph}" />
                         </StackPanel>
+                        <Button.ContextMenu>
+                            <ContextMenu>
+                                <MenuItem Header="Move left" Command="{Binding MoveLeftCommand}" IsEnabled="{Binding CanReorder}" />
+                                <MenuItem Header="Move right" Command="{Binding MoveRightCommand}" IsEnabled="{Binding CanReorder}" />
+                                <Separator />
+                                <MenuItem Header="Show columns"
+                                          ItemsSource="{Binding Owner.Columns}"
+                                          ItemContainerTheme="{StaticResource ColumnToggleItemTheme}" />
+                            </ContextMenu>
+                        </Button.ContextMenu>
                     </Button>
 
                     <ItemsControl Grid.Column="2" ItemsSource="{Binding Columns.VisibleTrailingColumns}">
@@ -110,6 +135,16 @@
                                         <TextBlock Text="{Binding Header}" TextTrimming="CharacterEllipsis" />
                                         <TextBlock Text="{Binding SortGlyph}" />
                                     </StackPanel>
+                                    <Button.ContextMenu>
+                                        <ContextMenu>
+                                            <MenuItem Header="Move left" Command="{Binding MoveLeftCommand}" IsEnabled="{Binding CanReorder}" />
+                                            <MenuItem Header="Move right" Command="{Binding MoveRightCommand}" IsEnabled="{Binding CanReorder}" />
+                                            <Separator />
+                                            <MenuItem Header="Show columns"
+                                                      ItemsSource="{Binding Owner.Columns}"
+                                                      ItemContainerTheme="{StaticResource ColumnToggleItemTheme}" />
+                                        </ContextMenu>
+                                    </Button.ContextMenu>
                                 </Button>
                             </DataTemplate>
                         </ItemsControl.ItemTemplate>

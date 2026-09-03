@@ -43,6 +43,11 @@ public sealed partial class DownloadColumnViewModel : ViewModelBase
     private readonly Action<DownloadColumnViewModel>? _sort;
     private readonly Action<DownloadColumnViewModel, int>? _move;
 
+    /// <summary>The columns view model this belongs to - lets a header cell's context menu bind
+    /// the full column list (<c>Owner.Columns</c>) for its show/hide submenu without reaching
+    /// across the visual tree.</summary>
+    public DownloadColumnsViewModel? Owner { get; internal set; }
+
     public DownloadColumnId Id { get; }
 
     public string Header { get; }

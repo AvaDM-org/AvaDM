@@ -132,6 +132,7 @@ public sealed partial class DownloadColumnsViewModel : ViewModelBase
                 var col = new DownloadColumnViewModel(id, meta.Header, meta.CanHide, meta.Width, Sort, MoveColumnBy)
                 {
                     IsVisible = id == DownloadColumnId.Name || visible.Contains(id),
+                    Owner = this,
                 };
                 col.PropertyChanged += OnColumnPropertyChanged;
                 Columns.Add(col);
