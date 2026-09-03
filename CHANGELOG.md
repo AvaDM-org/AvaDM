@@ -11,6 +11,17 @@ fail fast if its version has no section here**. Add the entry before pushing the
 
 ## [Unreleased]
 
+### Changed
+
+- **The Add Download form now has a separate "File name" field.** Typing a link fills it in with
+  the name derived from the URL (the same name the engine would have used), and it stays editable,
+  so the file can be saved under a different name than the link's without renaming it afterwards.
+  "Save to" is now just the destination folder.
+- **"Chunks" is now labelled "Connections"** (matching the term other download managers use) -
+  "Connections" in the Add Download advanced options, "Connections per download" in Settings. The
+  Add Download field's placeholder now names the actual default it falls back to instead of just
+  saying "Default".
+
 ## [1.3.1] - 2026-09-03
 
 ### Fixed
