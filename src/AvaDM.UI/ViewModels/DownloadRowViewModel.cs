@@ -165,7 +165,14 @@ public sealed partial class DownloadRowViewModel : ViewModelBase
     /// <see cref="OnSpeedLimitBytesPerSecondChanged"/>), since <see cref="DownloadHandle.SetSpeedLimit"/>
     /// is cheap to call repeatedly.</summary>
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(SpeedLimitDisplayText))]
     private long? _speedLimitBytesPerSecond;
+
+    /// <summary>Secondary line under the current speed in the Speed cell: the active limit, or
+    /// "no limit".</summary>
+    public string SpeedLimitDisplayText => SpeedLimitBytesPerSecond is { } bytesPerSecond
+        ? $"limit {FormatHelpers.FormatBytes(bytesPerSecond)}/s"
+        : "no limit";
 
     /// <summary>Per-connection snapshots feeding the name cell's segmented progress bar.</summary>
     public ObservableCollection<ChunkRowViewModel> Chunks { get; } = new();

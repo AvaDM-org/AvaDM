@@ -96,7 +96,7 @@
                     <DataTemplate x:DataType="vm:DownloadCellViewModel">
                         <Border Width="{Binding Column.Width}" Padding="6,0" VerticalAlignment="Stretch">
                             <Panel VerticalAlignment="Center">
-                                <StackPanel IsVisible="{Binding !IsStatus}" VerticalAlignment="Center">
+                                <StackPanel IsVisible="{Binding IsPlain}" VerticalAlignment="Center">
                                     <TextBlock Text="{Binding Text}"
                                                ToolTip.Tip="{Binding Text}"
                                                TextTrimming="CharacterEllipsis"
@@ -111,6 +111,47 @@
                                                FontSize="{StaticResource LabelSmFontSize}"
                                                Foreground="{DynamicResource TextDisabledBrush}" />
                                 </StackPanel>
+
+                                <!-- Speed cell: plain text when idle; for a live download a
+                                     click-to-open speed-limit editor (kept in a flyout so the
+                                     row height never changes). -->
+                                <Panel IsVisible="{Binding IsSpeed}" VerticalAlignment="Center">
+                                    <TextBlock Text="{Binding Text}"
+                                               IsVisible="{Binding !Row.HasActiveHandle}"
+                                               FontFamily="{StaticResource MonoFontFamily}"
+                                               FontSize="{StaticResource NumericMdFontSize}"
+                                               FontWeight="{StaticResource NumericMdFontWeight}"
+                                               Foreground="{DynamicResource TextSecondaryBrush}"
+                                               VerticalAlignment="Center" />
+                                    <Button Classes="cell"
+                                            IsVisible="{Binding Row.HasActiveHandle}"
+                                            ToolTip.Tip="Set a speed limit for this download">
+                                        <StackPanel>
+                                            <TextBlock Text="{Binding Text}"
+                                                       FontFamily="{StaticResource MonoFontFamily}"
+                                                       FontSize="{StaticResource NumericMdFontSize}"
+                                                       FontWeight="{StaticResource NumericMdFontWeight}"
+                                                       Foreground="{DynamicResource TextSecondaryBrush}" />
+                                            <TextBlock Text="{Binding Row.SpeedLimitDisplayText}"
+                                                       FontFamily="{StaticResource MonoFontFamily}"
+                                                       FontSize="{StaticResource LabelSmFontSize}"
+                                                       Foreground="{DynamicResource TextDisabledBrush}" />
+                                        </StackPanel>
+                                        <Button.Flyout>
+                                            <Flyout Placement="Bottom">
+                                                <StackPanel Spacing="{StaticResource SpaceSm}" Width="230">
+                                                    <TextBlock Text="Speed limit"
+                                                               FontSize="{StaticResource LabelSmFontSize}"
+                                                               FontWeight="{StaticResource LabelSmFontWeight}"
+                                                               Foreground="{DynamicResource TextSecondaryBrush}" />
+                                                    <controls:SpeedLimitEditor
+                                                        SpeedLimitBytesPerSecond="{Binding Row.SpeedLimitBytesPerSecond, Mode=TwoWay}" />
+                                                </StackPanel>
+                                            </Flyout>
+                                        </Button.Flyout>
+                                    </Button>
+                                </Panel>
+
                                 <controls:StatusChip IsVisible="{Binding IsStatus}"
                                                      StatusClass="{Binding Row.StatusChipClass}"
                                                      StatusText="{Binding Row.StatusText}"

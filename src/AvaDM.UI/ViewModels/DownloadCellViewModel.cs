@@ -17,9 +17,16 @@ public sealed partial class DownloadCellViewModel : ViewModelBase
 
     public DownloadColumnId Id => Column.Id;
 
-    /// <summary>The Status cell renders the shared status chip; every other cell renders
-    /// <see cref="Text"/> plus an optional secondary <see cref="SubText"/> line.</summary>
+    /// <summary>The Status cell renders the shared status chip.</summary>
     public bool IsStatus => Id == DownloadColumnId.Status;
+
+    /// <summary>The Speed cell renders the current speed plus (for a live download) a click-to-open
+    /// speed-limit editor.</summary>
+    public bool IsSpeed => Id == DownloadColumnId.Speed;
+
+    /// <summary>Every other cell just renders <see cref="Text"/> plus an optional secondary
+    /// <see cref="SubText"/> line.</summary>
+    public bool IsPlain => !IsStatus && !IsSpeed;
 
     [ObservableProperty]
     private string _text = string.Empty;

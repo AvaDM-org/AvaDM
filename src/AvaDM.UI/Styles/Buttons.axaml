@@ -89,6 +89,30 @@
     <Setter Property="Background" Value="{DynamicResource BorderBrush}" />
   </Style>
 
+  <!-- ===== cell: a borderless, left-aligned button used for an interactive table cell
+       (the Speed cell's speed-limit editor trigger, issue #19). Quiet until hovered. ===== -->
+  <Style Selector="Button.cell">
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="Foreground" Value="{DynamicResource TextSecondaryBrush}" />
+    <Setter Property="BorderThickness" Value="0" />
+    <Setter Property="CornerRadius" Value="{StaticResource RadiusControl}" />
+    <Setter Property="Padding" Value="4,2" />
+    <Setter Property="HorizontalAlignment" Value="Stretch" />
+    <Setter Property="HorizontalContentAlignment" Value="Left" />
+    <Setter Property="Cursor" Value="Hand" />
+    <Setter Property="Transitions">
+      <Transitions>
+        <BrushTransition Property="Background" Duration="0:0:0.15" />
+      </Transitions>
+    </Setter>
+  </Style>
+  <Style Selector="Button.cell:pointerover /template/ ContentPresenter">
+    <Setter Property="Background" Value="{DynamicResource SurfaceAltBrush}" />
+  </Style>
+  <Style Selector="Button.cell:pressed /template/ ContentPresenter">
+    <Setter Property="Background" Value="{DynamicResource BorderBrush}" />
+  </Style>
+
   <!-- ===== icon: transparent background, surface-alt on hover, no border ===== -->
   <Style Selector="Button.icon">
     <Setter Property="Background" Value="Transparent" />
