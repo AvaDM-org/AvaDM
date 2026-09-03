@@ -148,9 +148,8 @@ public sealed partial class DownloadRowViewModel : ViewModelBase
     [NotifyPropertyChangedFor(nameof(RunningEtaText))]
     private double? _speedBytesPerSecond;
 
-    /// <summary>Last error text, kept even after the row stops being expanded so a Failed row's
-    /// reason is visible without expanding it - design.md has no log panel, so this is the only
-    /// place the failure reason surfaces.</summary>
+    /// <summary>Last error text for a Failed row, shown as a red line under the name/path - there
+    /// is no log panel, so this is the only place the failure reason surfaces.</summary>
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(HasLastError))]
     private string? _lastError;
@@ -426,7 +425,8 @@ public sealed partial class DownloadRowViewModel : ViewModelBase
         });
 
     /// <summary>Updates <see cref="Chunks"/> in place (matched by index) rather than replacing
-    /// the collection, so an expanded chunk panel doesn't flicker/rebuild on every tick.</summary>
+    /// the collection, so the name cell's segmented progress bar animates each connection's fill
+    /// instead of rebuilding its segments on every tick.</summary>
     private void SyncChunksFrom(IReadOnlyList<ChunkProgress> snapshot)
     {
         for (var i = 0; i < snapshot.Count; i++)

@@ -58,9 +58,11 @@
                                TextTrimming="CharacterEllipsis"
                                FontSize="{StaticResource LabelSmFontSize}"
                                Foreground="{DynamicResource TextSecondaryBrush}" />
-                    <ProgressBar Value="{Binding ProgressPercent}" Minimum="0" Maximum="100"
-                                 IsIndeterminate="{Binding IsSizeUnknown}"
-                                 IsVisible="{Binding ShowProgressBar}" />
+                    <controls:SegmentedProgressBar Chunks="{Binding Chunks}"
+                                                   Value="{Binding ProgressPercent}"
+                                                   IsIndeterminate="{Binding IsSizeUnknown}"
+                                                   IsVisible="{Binding ShowProgressBar}"
+                                                   HorizontalAlignment="Stretch" />
                     <TextBlock Text="{Binding LastError}"
                                IsVisible="{Binding HasLastError}"
                                TextTrimming="CharacterEllipsis"

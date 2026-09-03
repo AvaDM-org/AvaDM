@@ -1,0 +1,29 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="AvaDM.UI.Controls.SegmentedProgressBar">
+
+    <!-- Flat rounded track; the fill is drawn by the child bar(s) added in code-behind and
+         clipped to this border's radius. -->
+    <Border x:Name="Track"
+            Height="6"
+            Background="{DynamicResource SurfaceAltBrush}"
+            CornerRadius="{StaticResource RadiusControl}"
+            ClipToBounds="True">
+        <Grid x:Name="Segments" />
+    </Border>
+
+    <UserControl.Styles>
+        <!-- Each segment: flat primary fill on a transparent track, no radius, no gap - so a row
+             of them reads as one bar that has filled unevenly. -->
+        <Style Selector="ProgressBar.segment">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="Foreground" Value="{DynamicResource PrimaryBrush}" />
+            <Setter Property="CornerRadius" Value="0" />
+            <Setter Property="MinWidth" Value="0" />
+            <Setter Property="MinHeight" Value="0" />
+        </Style>
+        <Style Selector="ProgressBar.segment /template/ Border#PART_Indicator">
+            <Setter Property="CornerRadius" Value="0" />
+        </Style>
+    </UserControl.Styles>
+</UserControl>
