@@ -43,4 +43,7 @@
   <SolidColorBrush x:Key="NeutralChipBackgroundBrush" Color="{StaticResource SurfaceAltColor}" />
   <SolidColorBrush x:Key="NeutralChipTextBrush" Color="{StaticResource TextSecondaryColor}" />
 
+  <!-- Row selection highlight (issue #19): primary at low opacity, matching the chip-tint pattern. -->
+  <SolidColorBrush x:Key="SelectionBrush" Color="{StaticResource PrimaryColor}" Opacity="0.16" />
+
 </ResourceDictionary>

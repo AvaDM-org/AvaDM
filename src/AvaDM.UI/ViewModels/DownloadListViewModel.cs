@@ -46,6 +46,28 @@ public sealed partial class DownloadListViewModel : ViewModelBase, IDisposable
 
     public ObservableCollection<DownloadRowViewModel> FilteredDownloads { get; } = new();
 
+    /// <summary>Rows the user has ticked/selected in the table. Two-way bound to the list's
+    /// <c>SelectedItems</c>, so it tracks click / Ctrl+click / Shift+click / row checkbox /
+    /// select-all alike. Drives the toolbar trash icon and the bulk-remove flow.</summary>
+    public ObservableCollection<DownloadRowViewModel> SelectedDownloads { get; } = new();
+
+    /// <summary>Guards <see cref="SelectAllState"/> against re-entrancy: user toggles drive the
+    /// selection, and selection changes drive the tri-state back, and neither should trigger the
+    /// other.</summary>
+    private bool _syncingSelectAll;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasSelection))]
+    private int _selectedCount;
+
+    public bool HasSelection => SelectedCount > 0;
+
+    /// <summary>Header select-all checkbox: <c>true</c> = every visible row selected, <c>false</c>
+    /// = none, <c>null</c> = some (shown as the indeterminate dash). Not three-state for the
+    /// user - a click always goes to "select all", then "clear".</summary>
+    [ObservableProperty]
+    private bool? _selectAllState = false;
+
     /// <summary>Fires whenever a row is added, removed, or changes <see cref="DownloadRowViewModel.DisplayStatus"/>
     /// (start, pause, resume, complete, fail, handle attach/detach) - i.e. whenever the set of
     /// "what's currently happening" genuinely changes, not on every progress tick. Used by
@@ -120,6 +142,12 @@ public sealed partial class DownloadListViewModel : ViewModelBase, IDisposable
 
         Columns = new DownloadColumnsViewModel(uiPreferences);
         Columns.SortChanged += (_, _) => ApplyFilter();
+
+        SelectedDownloads.CollectionChanged += (_, _) =>
+        {
+            SelectedCount = SelectedDownloads.Count;
+            RecomputeSelectAllState();
+        };
 
         _reconcileTimer = new DispatcherTimer { Interval = ReconcileInterval };
         _reconcileTimer.Tick += async (_, _) => await ReconcileAsync();
@@ -252,6 +280,7 @@ public sealed partial class DownloadListViewModel : ViewModelBase, IDisposable
         row.Release();
         _allRows.Remove(row);
         FilteredDownloads.Remove(row);
+        SelectedDownloads.Remove(row);
         RaiseDownloadsChanged();
     }
 
@@ -337,6 +366,51 @@ public sealed partial class DownloadListViewModel : ViewModelBase, IDisposable
                 else
                     FilteredDownloads.Insert(i, matches[i]);
             }
+        }
+
+        // Selection only ever covers what's on screen - a row filtered out by search drops out
+        // of the selection too, so the trash icon / Delete key never act on hidden rows.
+        for (var i = SelectedDownloads.Count - 1; i >= 0; i--)
+        {
+            if (!FilteredDownloads.Contains(SelectedDownloads[i]))
+                SelectedDownloads.RemoveAt(i);
+        }
+
+        RecomputeSelectAllState();
+    }
+
+    partial void OnSelectAllStateChanged(bool? value)
+    {
+        if (_syncingSelectAll)
+            return;
+
+        if (value == true)
+        {
+            foreach (var row in FilteredDownloads)
+            {
+                if (!SelectedDownloads.Contains(row))
+                    SelectedDownloads.Add(row);
+            }
+        }
+        else
+        {
+            SelectedDownloads.Clear();
+        }
+    }
+
+    private void RecomputeSelectAllState()
+    {
+        _syncingSelectAll = true;
+        try
+        {
+            var selectedVisible = FilteredDownloads.Count(SelectedDownloads.Contains);
+            SelectAllState = selectedVisible == 0
+                ? false
+                : selectedVisible == FilteredDownloads.Count ? true : null;
+        }
+        finally
+        {
+            _syncingSelectAll = false;
         }
     }
 

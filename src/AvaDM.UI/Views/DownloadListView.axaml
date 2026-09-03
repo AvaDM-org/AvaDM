@@ -8,6 +8,31 @@
              x:Class="AvaDM.UI.Views.DownloadListView"
              x:DataType="vm:DownloadListViewModel">
 
+    <UserControl.Styles>
+        <!-- Full-bleed table rows: no item padding/rounding, a flat surface-alt hover, and the
+             primary-tinted SelectionBrush for a selected row (issue #19). -->
+        <Style Selector="ListBox.downloads">
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+        </Style>
+        <Style Selector="ListBox.downloads ListBoxItem">
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="Margin" Value="0" />
+            <Setter Property="MinHeight" Value="0" />
+            <Setter Property="CornerRadius" Value="0" />
+        </Style>
+        <Style Selector="ListBox.downloads ListBoxItem:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="{DynamicResource SurfaceAltBrush}" />
+        </Style>
+        <Style Selector="ListBox.downloads ListBoxItem:selected /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="{DynamicResource SelectionBrush}" />
+        </Style>
+        <Style Selector="ListBox.downloads ListBoxItem:selected:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="{DynamicResource SelectionBrush}" />
+        </Style>
+    </UserControl.Styles>
+
     <!-- Two-bar toolbar + columned table (docs/design.md; issue #19). Bar 1: search, the
          advanced-add "+" button, and the settings gear (the quick-add link box and the
          multi-select trash land here in later commits). Bar 2: the sortable column header,
@@ -47,8 +72,11 @@
                     BorderThickness="0,0,0,1"
                     Padding="{StaticResource RowPadding}">
                 <Grid ColumnDefinitions="Auto,*,Auto">
-                    <!-- Select-all checkbox slot - wired with row selection in a later commit. -->
-                    <Panel Grid.Column="0" Width="28" />
+                    <CheckBox Grid.Column="0" Width="28"
+                              IsThreeState="False"
+                              IsChecked="{Binding SelectAllState, Mode=TwoWay}"
+                              ToolTip.Tip="Select all"
+                              VerticalAlignment="Center" HorizontalAlignment="Center" />
 
                     <Button Grid.Column="1"
                             Classes="columnHeader"
@@ -81,15 +109,17 @@
                 </Grid>
             </Border>
 
-            <ScrollViewer Grid.Row="2">
-                <ItemsControl ItemsSource="{Binding FilteredDownloads}">
-                    <ItemsControl.ItemTemplate>
-                        <DataTemplate x:DataType="vm:DownloadRowViewModel">
-                            <views:DownloadRowView />
-                        </DataTemplate>
-                    </ItemsControl.ItemTemplate>
-                </ItemsControl>
-            </ScrollViewer>
+            <ListBox Grid.Row="2"
+                     Classes="downloads"
+                     ItemsSource="{Binding FilteredDownloads}"
+                     SelectedItems="{Binding SelectedDownloads}"
+                     SelectionMode="Multiple">
+                <ListBox.ItemTemplate>
+                    <DataTemplate x:DataType="vm:DownloadRowViewModel">
+                        <views:DownloadRowView />
+                    </DataTemplate>
+                </ListBox.ItemTemplate>
+            </ListBox>
         </Grid>
 
         <Border IsVisible="{Binding IsAddDownloadOpen}"

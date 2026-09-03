@@ -22,8 +22,10 @@
               Margin="{StaticResource RowPadding}"
               DoubleTapped="OnHeaderDoubleTapped">
 
-            <!-- Select checkbox slot - wired with multi-select in a later commit. -->
-            <Panel Grid.Column="0" Width="28" />
+            <CheckBox Grid.Column="0" Width="28"
+                      IsChecked="{Binding $parent[ListBoxItem].IsSelected, Mode=TwoWay}"
+                      VerticalAlignment="Center" HorizontalAlignment="Center" />
+
 
             <Grid Grid.Column="1" ColumnDefinitions="160,*" VerticalAlignment="Center">
                 <StackPanel Grid.Column="0" Orientation="Horizontal"
