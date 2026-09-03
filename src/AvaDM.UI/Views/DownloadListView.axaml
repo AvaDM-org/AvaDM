@@ -44,7 +44,7 @@
                     BorderBrush="{DynamicResource BorderBrush}"
                     BorderThickness="0,0,0,1"
                     Padding="{StaticResource ToolbarPadding}">
-                <Grid ColumnDefinitions="*,Auto,Auto"
+                <Grid ColumnDefinitions="*,Auto,Auto,Auto"
                       ColumnSpacing="{StaticResource SpaceSm}">
                     <TextBox Grid.Column="0"
                              Text="{Binding SearchText, Mode=TwoWay}"
@@ -58,6 +58,14 @@
                             ToolTip.Tip="Add download (advanced)" />
 
                     <Button Grid.Column="2"
+                            Classes="icon"
+                            Content="&#128465;"
+                            FontSize="{StaticResource HeadingSmFontSize}"
+                            IsVisible="{Binding HasSelection}"
+                            Command="{Binding BulkRemoveCommand}"
+                            ToolTip.Tip="Remove selected downloads" />
+
+                    <Button Grid.Column="3"
                             Classes="icon"
                             Content="&#9881;"
                             FontSize="{StaticResource HeadingSmFontSize}"
@@ -114,6 +122,9 @@
                      ItemsSource="{Binding FilteredDownloads}"
                      SelectedItems="{Binding SelectedDownloads}"
                      SelectionMode="Multiple">
+                <ListBox.KeyBindings>
+                    <KeyBinding Gesture="Delete" Command="{Binding BulkRemoveCommand}" />
+                </ListBox.KeyBindings>
                 <ListBox.ItemTemplate>
                     <DataTemplate x:DataType="vm:DownloadRowViewModel">
                         <views:DownloadRowView />
@@ -140,6 +151,13 @@
                 Background="#99000000">
             <Border HorizontalAlignment="Center" VerticalAlignment="Center">
                 <views:CancelConfirmationView DataContext="{Binding ActiveCancelConfirmation}" />
+            </Border>
+        </Border>
+
+        <Border IsVisible="{Binding IsBulkRemoveConfirmationOpen}"
+                Background="#99000000">
+            <Border HorizontalAlignment="Center" VerticalAlignment="Center">
+                <views:BulkRemoveConfirmationView DataContext="{Binding ActiveBulkRemoveConfirmation}" />
             </Border>
         </Border>
 

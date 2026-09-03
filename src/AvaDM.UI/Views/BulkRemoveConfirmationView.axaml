@@ -1,0 +1,70 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:vm="using:AvaDM.UI.ViewModels"
+             mc:Ignorable="d" d:DesignWidth="400" d:DesignHeight="360"
+             x:Class="AvaDM.UI.Views.BulkRemoveConfirmationView"
+             x:DataType="vm:BulkRemoveConfirmationViewModel">
+    <Border Background="{DynamicResource SurfaceBrush}"
+            BorderBrush="{DynamicResource BorderBrush}"
+            BorderThickness="1"
+            CornerRadius="{StaticResource RadiusCard}"
+            Padding="{StaticResource PanelPadding}"
+            Width="400"
+            IsEnabled="{Binding !IsBusy}">
+        <StackPanel Spacing="{StaticResource SpaceMd}">
+
+            <TextBlock Text="{Binding Title}"
+                       FontSize="{StaticResource HeadingSmFontSize}"
+                       FontWeight="{StaticResource HeadingSmFontWeight}"
+                       Foreground="{DynamicResource TextPrimaryBrush}" />
+
+            <Border Background="{DynamicResource SurfaceAltBrush}"
+                    CornerRadius="{StaticResource RadiusControl}"
+                    Padding="{StaticResource RowPadding}"
+                    MaxHeight="160">
+                <ScrollViewer>
+                    <ItemsControl ItemsSource="{Binding FileNames}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate x:DataType="x:String">
+                                <TextBlock Text="{Binding}"
+                                           FontSize="{StaticResource BodyMdFontSize}"
+                                           Foreground="{DynamicResource TextPrimaryBrush}"
+                                           TextTrimming="CharacterEllipsis" />
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </ScrollViewer>
+            </Border>
+
+            <CheckBox Content="Also delete the downloaded files from disk"
+                      IsChecked="{Binding DeleteFile}" />
+
+            <Border Background="{DynamicResource SurfaceAltBrush}"
+                    BorderBrush="{DynamicResource DangerBrush}"
+                    BorderThickness="1"
+                    CornerRadius="{StaticResource RadiusControl}"
+                    Padding="{StaticResource RowPadding}">
+                <TextBlock Text="{Binding WarningText}"
+                           TextWrapping="Wrap"
+                           FontSize="{StaticResource BodyMdFontSize}"
+                           Foreground="{DynamicResource DangerBrush}" />
+            </Border>
+
+            <TextBlock Text="{Binding ErrorMessage}"
+                       IsVisible="{Binding HasError}"
+                       FontSize="{StaticResource BodyMdFontSize}"
+                       Foreground="{DynamicResource DangerBrush}"
+                       TextWrapping="Wrap" />
+
+            <StackPanel Orientation="Horizontal"
+                        HorizontalAlignment="Right"
+                        Spacing="{StaticResource SpaceSm}">
+                <Button Classes="secondary" Content="Cancel" Command="{Binding CancelCommand}" />
+                <Button Classes="primary" Content="Remove" Command="{Binding ConfirmCommand}" />
+            </StackPanel>
+
+        </StackPanel>
+    </Border>
+</UserControl>

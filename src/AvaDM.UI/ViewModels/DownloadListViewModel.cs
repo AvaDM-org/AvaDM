@@ -128,6 +128,14 @@ public sealed partial class DownloadListViewModel : ViewModelBase, IDisposable
 
     public bool IsCancelConfirmationOpen => ActiveCancelConfirmation is not null;
 
+    /// <summary>Non-null while the bulk-remove confirmation overlay is open (toolbar trash icon
+    /// or the Delete key). <see cref="IsBulkRemoveConfirmationOpen"/> drives its visibility.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsBulkRemoveConfirmationOpen))]
+    private BulkRemoveConfirmationViewModel? _activeBulkRemoveConfirmation;
+
+    public bool IsBulkRemoveConfirmationOpen => ActiveBulkRemoveConfirmation is not null;
+
     public DownloadListViewModel(
         DownloadManager downloadManager,
         DownloadSettings settings,
@@ -165,6 +173,32 @@ public sealed partial class DownloadListViewModel : ViewModelBase, IDisposable
 
     [RelayCommand]
     private void OpenSettings() => _navigateToSettings();
+
+    /// <summary>Toolbar trash icon / Delete key: confirm removing every selected row at once.
+    /// No-op with nothing selected (the trash icon is hidden then anyway).</summary>
+    [RelayCommand]
+    private void BulkRemove()
+    {
+        if (SelectedDownloads.Count == 0 || ActiveBulkRemoveConfirmation is not null)
+            return;
+
+        ActiveBulkRemoveConfirmation = new BulkRemoveConfirmationViewModel(
+            _downloadManager,
+            SelectedDownloads.ToList(),
+            OnBulkRemoveOutcome,
+            () => ActiveBulkRemoveConfirmation = null);
+    }
+
+    private void OnBulkRemoveOutcome(BulkRemoveOutcome outcome)
+    {
+        foreach (var id in outcome.RemovedIds)
+            RemoveRow(id);
+
+        // Fully successful: close the overlay. Partial failure: leave it open so its error text
+        // is visible; the user dismisses it with Cancel.
+        if (outcome.FailureCount == 0)
+            ActiveBulkRemoveConfirmation = null;
+    }
 
     /// <summary>Opens the Add Download overlay with a fresh view model wired to close itself
     /// (submitted or cancelled) via the two callbacks below.</summary>
