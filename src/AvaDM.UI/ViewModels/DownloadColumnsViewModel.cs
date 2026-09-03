@@ -72,6 +72,10 @@ public sealed partial class DownloadColumnsViewModel : ViewModelBase
     /// each row's trailing cells bind here; Name is rendered separately as the flexible column.</summary>
     public ObservableCollection<DownloadColumnViewModel> VisibleTrailingColumns { get; } = new();
 
+    /// <summary>The pinned Name column (always <see cref="Columns"/>[0]). Its instance is stable
+    /// for this view model's lifetime, so bound headers/rows can hold onto it directly.</summary>
+    public DownloadColumnViewModel NameColumn { get; private set; } = null!;
+
     [ObservableProperty]
     private DownloadColumnId _sortColumnId = DefaultSortColumn;
 
@@ -131,6 +135,7 @@ public sealed partial class DownloadColumnsViewModel : ViewModelBase
                 Columns.Add(col);
             }
 
+            NameColumn = Columns[0];
             SortColumnId = sort;
             SortAscending = asc;
 

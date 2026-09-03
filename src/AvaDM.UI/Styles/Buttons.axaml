@@ -62,6 +62,33 @@
     <Setter Property="Foreground" Value="{DynamicResource TextDisabledBrush}" />
   </Style>
 
+  <!-- ===== columnHeader: flat, left-aligned sortable table-header cell (downloads table,
+       issue #19). Sits on the surface-alt header bar, so hover uses the border token for a
+       visible-but-quiet change rather than surface-alt over surface-alt. ===== -->
+  <Style Selector="Button.columnHeader">
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="Foreground" Value="{DynamicResource TextSecondaryBrush}" />
+    <Setter Property="BorderThickness" Value="0" />
+    <Setter Property="CornerRadius" Value="{StaticResource RadiusControl}" />
+    <Setter Property="Padding" Value="6,4" />
+    <Setter Property="HorizontalAlignment" Value="Stretch" />
+    <Setter Property="HorizontalContentAlignment" Value="Left" />
+    <Setter Property="FontSize" Value="{StaticResource LabelSmFontSize}" />
+    <Setter Property="FontWeight" Value="{StaticResource LabelSmFontWeight}" />
+    <Setter Property="Cursor" Value="Hand" />
+    <Setter Property="Transitions">
+      <Transitions>
+        <BrushTransition Property="Background" Duration="0:0:0.15" />
+      </Transitions>
+    </Setter>
+  </Style>
+  <Style Selector="Button.columnHeader:pointerover /template/ ContentPresenter">
+    <Setter Property="Background" Value="{DynamicResource BorderBrush}" />
+  </Style>
+  <Style Selector="Button.columnHeader:pressed /template/ ContentPresenter">
+    <Setter Property="Background" Value="{DynamicResource BorderBrush}" />
+  </Style>
+
   <!-- ===== icon: transparent background, surface-alt on hover, no border ===== -->
   <Style Selector="Button.icon">
     <Setter Property="Background" Value="Transparent" />

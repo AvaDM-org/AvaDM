@@ -8,33 +8,80 @@
              x:Class="AvaDM.UI.Views.DownloadListView"
              x:DataType="vm:DownloadListViewModel">
 
-    <!-- Toolbar and row-list layout follow docs/design.md. -->
+    <!-- Two-bar toolbar + columned table (docs/design.md; issue #19). Bar 1: search, the
+         advanced-add "+" button, and the settings gear (the quick-add link box and the
+         multi-select trash land here in later commits). Bar 2: the sortable column header,
+         built from DownloadColumnsViewModel so a sort/reorder/show-hide reflows the rows below. -->
     <Panel>
-        <Grid RowDefinitions="Auto,*">
+        <Grid RowDefinitions="Auto,Auto,*">
             <Border Grid.Row="0"
                     Background="{DynamicResource SurfaceAltBrush}"
                     BorderBrush="{DynamicResource BorderBrush}"
                     BorderThickness="0,0,0,1"
                     Padding="{StaticResource ToolbarPadding}">
-                <Grid ColumnDefinitions="Auto,*,Auto"
-                      ColumnSpacing="{StaticResource SpaceMd}">
-                    <Button Grid.Column="0"
-                            Classes="primary"
-                            Content="Add Download"
-                            Command="{Binding AddDownloadCommand}" />
-
-                    <TextBox Grid.Column="1"
+                <Grid ColumnDefinitions="*,Auto,Auto"
+                      ColumnSpacing="{StaticResource SpaceSm}">
+                    <TextBox Grid.Column="0"
                              Text="{Binding SearchText, Mode=TwoWay}"
                              PlaceholderText="Search downloads..." />
 
+                    <Button Grid.Column="1"
+                            Classes="icon"
+                            Content="&#65291;"
+                            FontSize="{StaticResource HeadingSmFontSize}"
+                            Command="{Binding AddDownloadCommand}"
+                            ToolTip.Tip="Add download (advanced)" />
+
                     <Button Grid.Column="2"
-                            Classes="secondary"
-                            Content="Settings"
-                            Command="{Binding OpenSettingsCommand}" />
+                            Classes="icon"
+                            Content="&#9881;"
+                            FontSize="{StaticResource HeadingSmFontSize}"
+                            Command="{Binding OpenSettingsCommand}"
+                            ToolTip.Tip="Settings" />
                 </Grid>
             </Border>
 
-            <ScrollViewer Grid.Row="1" Margin="{StaticResource PanelPadding}">
+            <Border Grid.Row="1"
+                    Background="{DynamicResource SurfaceAltBrush}"
+                    BorderBrush="{DynamicResource BorderBrush}"
+                    BorderThickness="0,0,0,1"
+                    Padding="{StaticResource RowPadding}">
+                <Grid ColumnDefinitions="Auto,*,Auto">
+                    <!-- Select-all checkbox slot - wired with row selection in a later commit. -->
+                    <Panel Grid.Column="0" Width="28" />
+
+                    <Button Grid.Column="1"
+                            Classes="columnHeader"
+                            Command="{Binding Columns.NameColumn.SortCommand}">
+                        <StackPanel Orientation="Horizontal" Spacing="{StaticResource SpaceXs}">
+                            <TextBlock Text="{Binding Columns.NameColumn.Header}" />
+                            <TextBlock Text="{Binding Columns.NameColumn.SortGlyph}" />
+                        </StackPanel>
+                    </Button>
+
+                    <ItemsControl Grid.Column="2" ItemsSource="{Binding Columns.VisibleTrailingColumns}">
+                        <ItemsControl.ItemsPanel>
+                            <ItemsPanelTemplate>
+                                <StackPanel Orientation="Horizontal" />
+                            </ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate x:DataType="vm:DownloadColumnViewModel">
+                                <Button Classes="columnHeader"
+                                        Width="{Binding Width}"
+                                        Command="{Binding SortCommand}">
+                                    <StackPanel Orientation="Horizontal" Spacing="{StaticResource SpaceXs}">
+                                        <TextBlock Text="{Binding Header}" TextTrimming="CharacterEllipsis" />
+                                        <TextBlock Text="{Binding SortGlyph}" />
+                                    </StackPanel>
+                                </Button>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </Grid>
+            </Border>
+
+            <ScrollViewer Grid.Row="2" Margin="{StaticResource PanelPadding}">
                 <ItemsControl ItemsSource="{Binding FilteredDownloads}">
                     <ItemsControl.ItemsPanel>
                         <ItemsPanelTemplate>
