@@ -169,10 +169,7 @@
                         <ItemsControl.ItemTemplate>
                             <DataTemplate x:DataType="vm:DownloadColumnViewModel">
                                 <Grid Width="{Binding Width}" ColumnDefinitions="*,Auto"
-                                      Background="Transparent"
-                                      PointerPressed="OnHeaderPointerPressed"
-                                      PointerMoved="OnHeaderPointerMoved"
-                                      PointerReleased="OnHeaderPointerReleased">
+                                      Background="Transparent">
                                     <Button Grid.Column="0" Classes="columnHeader"
                                             Command="{Binding SortCommand}">
                                         <StackPanel Orientation="Horizontal" Spacing="{StaticResource SpaceXs}">

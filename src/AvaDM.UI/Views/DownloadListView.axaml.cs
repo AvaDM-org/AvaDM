@@ -1,9 +1,11 @@
+using System.Linq;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
 using Avalonia.Input;
 using Avalonia.Input.Platform;
 using Avalonia.Interactivity;
+using Avalonia.VisualTree;
 using AvaDM.UI.ViewModels;
 
 namespace AvaDM.UI.Views;
@@ -20,6 +22,14 @@ public partial class DownloadListView : UserControl
     public DownloadListView()
     {
         InitializeComponent();
+
+        // The header cell is a Button (click = sort); a plain bubbling handler on the row above
+        // it would fire only after the Button has already handled the press/release and run the
+        // sort. Tunnelling handlers see the pointer first, so a drag can be recognised and the
+        // release swallowed before the Button's click - leaving a genuine click to still sort.
+        TrailingHeaders.AddHandler(PointerPressedEvent, OnHeaderPointerPressed, RoutingStrategies.Tunnel, handledEventsToo: true);
+        TrailingHeaders.AddHandler(PointerMovedEvent, OnHeaderPointerMoved, RoutingStrategies.Tunnel, handledEventsToo: true);
+        TrailingHeaders.AddHandler(PointerReleasedEvent, OnHeaderPointerReleased, RoutingStrategies.Tunnel, handledEventsToo: true);
     }
 
     /// <summary>Clipboard-paste icon inside the quick-add box: drop the clipboard text into it.
@@ -58,8 +68,11 @@ public partial class DownloadListView : UserControl
 
     private void OnHeaderPointerPressed(object? sender, PointerPressedEventArgs e)
     {
-        if (sender is Control { DataContext: DownloadColumnViewModel column }
-            && column.CanReorder
+        // A press on the resize grip is a resize, not a reorder.
+        if (e.Source is Visual v && v.GetSelfAndVisualAncestors().OfType<Thumb>().Any())
+            return;
+
+        if (ColumnFromSource(e.Source) is { CanReorder: true } column
             && e.GetCurrentPoint(this).Properties.IsLeftButtonPressed)
         {
             _dragColumn = column;
@@ -84,12 +97,18 @@ public partial class DownloadListView : UserControl
             var target = TrailingHeaderColumnAt(e.GetPosition(TrailingHeaders).X, vm);
             if (target is not null)
                 vm.Columns.MoveColumnBefore(_dragColumn, target);
+
+            // Swallow the release so the header Button underneath doesn't also fire its
+            // click-to-sort at the end of a drag.
             e.Handled = true;
         }
 
         _dragColumn = null;
         _dragging = false;
     }
+
+    private static DownloadColumnViewModel? ColumnFromSource(object? source) =>
+        (source as StyledElement)?.DataContext as DownloadColumnViewModel;
 
     /// <summary>Which visible trailing column the given x offset (within the trailing-header
     /// strip) falls over, by accumulating column widths.</summary>
