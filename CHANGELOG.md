@@ -25,9 +25,10 @@ fail fast if its version has no section here**. Add the entry before pushing the
   first paint.
 
 - **AvaDM running blocked the system from logging out, rebooting, or shutting down**, with the
-  desktop reporting "Logout canceled by ''". The window's minimize-to-tray handler cancelled
-  *every* close request, including the one the session manager sends each window on logout. It now
-  only redirects a genuine user close to the tray and lets shutdown close the window normally.
+  desktop reporting "Logout canceled by ''". With "minimize to tray" enabled (the default), the
+  window's close handler cancelled *every* close request - including the one the OS session
+  manager sends each window on logout. It now only redirects a genuine user close to the tray and
+  lets a shutdown close the window normally.
 
 ## [1.3.0] - 2026-08-31
 
