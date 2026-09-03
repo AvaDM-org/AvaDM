@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using AvaDM.Core;
+using AvaDM.UI.Services;
 using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -27,6 +28,11 @@ public sealed partial class DownloadListViewModel : ViewModelBase, IDisposable
     private readonly Action _navigateToSettings;
     private readonly Func<DownloadDoubleClickAction> _getDoubleClickAction;
     private readonly DispatcherTimer _reconcileTimer;
+
+    /// <summary>Column layout (order, visibility, widths) and the active sort for the downloads
+    /// table. The view binds its header bar and rows to this; a sort change re-runs
+    /// <see cref="ApplyFilter"/> so <see cref="FilteredDownloads"/> reorders to match.</summary>
+    public DownloadColumnsViewModel Columns { get; }
 
     /// <summary>Debounces <see cref="SearchText"/> so <see cref="ApplyFilter"/> - an O(n) scan
     /// plus O(n) list-diff per call - runs once typing pauses rather than on every keystroke,
@@ -103,6 +109,7 @@ public sealed partial class DownloadListViewModel : ViewModelBase, IDisposable
     public DownloadListViewModel(
         DownloadManager downloadManager,
         DownloadSettings settings,
+        UiPreferencesRepository uiPreferences,
         Action navigateToSettings,
         Func<DownloadDoubleClickAction> getDoubleClickAction)
     {
@@ -110,6 +117,9 @@ public sealed partial class DownloadListViewModel : ViewModelBase, IDisposable
         _settings = settings;
         _navigateToSettings = navigateToSettings;
         _getDoubleClickAction = getDoubleClickAction;
+
+        Columns = new DownloadColumnsViewModel(uiPreferences);
+        Columns.SortChanged += (_, _) => ApplyFilter();
 
         _reconcileTimer = new DispatcherTimer { Interval = ReconcileInterval };
         _reconcileTimer.Tick += async (_, _) => await ReconcileAsync();
@@ -308,6 +318,7 @@ public sealed partial class DownloadListViewModel : ViewModelBase, IDisposable
     {
         var search = SearchText.Trim();
         var matches = _allRows.Where(r => MatchesSearch(r, search)).ToList();
+        SortMatches(matches);
 
         for (var i = FilteredDownloads.Count - 1; i >= 0; i--)
         {
@@ -326,6 +337,38 @@ public sealed partial class DownloadListViewModel : ViewModelBase, IDisposable
             }
         }
     }
+
+    /// <summary>Orders <paramref name="rows"/> by the active sort column + direction (see
+    /// <see cref="Columns"/>). File name then id are the tie-breakers so the order is stable
+    /// across ticks even when the primary key is equal (e.g. two pending downloads, both 0%).</summary>
+    private void SortMatches(List<DownloadRowViewModel> rows)
+    {
+        Comparison<DownloadRowViewModel> primary = Columns.SortColumnId switch
+        {
+            DownloadColumnId.Name => (a, b) => NameCompare(a, b),
+            DownloadColumnId.Type => (a, b) => string.Compare(a.Extension, b.Extension, StringComparison.OrdinalIgnoreCase),
+            DownloadColumnId.Size => (a, b) => a.TotalBytes.CompareTo(b.TotalBytes),
+            DownloadColumnId.Created => (a, b) => a.CreatedAt.CompareTo(b.CreatedAt),
+            DownloadColumnId.Speed => (a, b) => Nullable.Compare(a.SpeedBytesPerSecond, b.SpeedBytesPerSecond),
+            DownloadColumnId.ProgressPercent => (a, b) => a.ProgressPercent.CompareTo(b.ProgressPercent),
+            DownloadColumnId.ProgressSize => (a, b) => a.BytesDownloaded.CompareTo(b.BytesDownloaded),
+            _ => (a, b) => a.CreatedAt.CompareTo(b.CreatedAt),
+        };
+
+        var sign = Columns.SortAscending ? 1 : -1;
+        rows.Sort((a, b) =>
+        {
+            var result = primary(a, b);
+            if (result != 0)
+                return sign * result;
+
+            var tie = NameCompare(a, b);
+            return tie != 0 ? tie : a.Id.CompareTo(b.Id);
+        });
+    }
+
+    private static int NameCompare(DownloadRowViewModel a, DownloadRowViewModel b) =>
+        string.Compare(a.FileName, b.FileName, StringComparison.OrdinalIgnoreCase);
 
     private static bool MatchesSearch(DownloadRowViewModel row, string search) =>
         string.IsNullOrEmpty(search)

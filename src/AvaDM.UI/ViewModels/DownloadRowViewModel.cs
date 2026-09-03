@@ -58,7 +58,12 @@ public sealed partial class DownloadRowViewModel : ViewModelBase
 
     public Guid Id { get; }
 
+    /// <summary>When this download was first added, straight from its persisted record. Immutable
+    /// for the row's lifetime; drives the "Created" column and its sort.</summary>
+    public DateTime CreatedAt { get; }
+
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(Extension))]
     private string _fileName;
 
     [ObservableProperty]
@@ -160,6 +165,7 @@ public sealed partial class DownloadRowViewModel : ViewModelBase
         _onLogMessage = onLogMessage;
         _getDoubleClickAction = getDoubleClickAction;
         Id = record.Id;
+        CreatedAt = record.CreatedAt;
         _fileName = Path.GetFileName(record.DestinationPath);
         _destinationPath = record.DestinationPath;
         _sourceUrl = record.Uri;
@@ -172,6 +178,10 @@ public sealed partial class DownloadRowViewModel : ViewModelBase
     }
 
     public double ProgressPercent => TotalBytes > 0 ? BytesDownloaded * 100.0 / TotalBytes : 0.0;
+
+    /// <summary>File extension without the leading dot (e.g. "mkv"), or empty when the name has
+    /// none. Backs the "Type" column.</summary>
+    public string Extension => Path.GetExtension(FileName).TrimStart('.');
 
     /// <summary>True while a download is actively running but its total size isn't known yet -
     /// a server that didn't report <c>Content-Length</c> (see <c>Downloader</c>'s unknown-size

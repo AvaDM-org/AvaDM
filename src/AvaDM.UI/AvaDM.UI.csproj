@@ -39,4 +39,8 @@
     <ProjectReference Include="..\AvaDM.Core\AvaDM.Core.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <InternalsVisibleTo Include="AvaDM.UI.Tests" />
+  </ItemGroup>
+
 </Project>

@@ -11,5 +11,6 @@
   </Folder>
   <Folder Name="/test/">
     <Project Path="test/AvaDM.Core.Tests/AvaDM.Core.Tests.csproj" />
+    <Project Path="test/AvaDM.UI.Tests/AvaDM.UI.Tests.csproj" />
   </Folder>
 </Solution>

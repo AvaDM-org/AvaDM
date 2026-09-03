@@ -17,6 +17,12 @@ public sealed class UiPreferencesRepository(string dbPath)
     public const string DoubleClickActionKey = "DoubleClickAction";
     public const string AutoUpdateEnabledKey = "AutoUpdateEnabled";
 
+    /// <summary>JSON blob describing the downloads-table layout: column display order, which
+    /// columns are hidden, and the active sort column/direction. Written by
+    /// <see cref="AvaDM.UI.ViewModels.DownloadColumnsViewModel"/>; column widths are deliberately
+    /// not part of it (they reset to defaults each launch).</summary>
+    public const string DownloadListLayoutKey = "DownloadListLayout";
+
     private string ConnectionString { get; } = new SqliteConnectionStringBuilder { DataSource = dbPath }.ToString();
 
     private SqliteConnection OpenConnection()
