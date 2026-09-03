@@ -15,6 +15,25 @@ _Accumulating several PRs; the release date and `v1.4.0` tag are set once the ba
 
 ### Changed
 
+- **The Downloads page is now a file-explorer-style table.** ([#19](https://github.com/AvaDM-org/AvaDM/issues/19))
+  - **Two toolbar bars.** The top one has the search box, a `+` button for the full Add Download
+    dialog, a quick-add link box (with a clipboard-paste button inside it and a start button) that
+    downloads a pasted link straight to the default folder, a trash button that appears when
+    downloads are selected, and the settings gear. The second bar is the column header.
+  - **Chosen columns.** Name (always shown) plus Type, Size, Created, Speed, Progress %, Progress
+    size, and Status. Right-click the header to show/hide columns or move them; drag a header, or
+    the grip on its edge, to reorder or resize; click a header to sort, click again to reverse.
+    Your column choice and sort survive a restart.
+  - **Select and bulk-remove.** A checkbox on every row plus click / Ctrl+click / Shift+click
+    selection and a header select-all. The trash button or the Delete key removes everything
+    selected at once, through one dialog that lists the files and has a single "also delete the
+    files from disk" option.
+  - **Right-click a download** for open file, open containing folder, copy download link, and
+    remove.
+  - **One progress bar per download, no expander.** Instead of expanding a row to see each
+    connection, the single progress bar now fills unevenly — each connection fills its own part of
+    it. The row shows the bar only while the download is active.
+  - The old All/Active/Completed/Failed filter tabs are gone; sort and search replace them.
 - **The Add Download form now has a separate "File name" field.** Typing a link fills it in with
   the name derived from the URL (the same name the engine would have used), and it stays editable,
   so the file can be saved under a different name than the link's without renaming it afterwards.
