@@ -4,7 +4,7 @@
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              xmlns:vm="using:AvaDM.UI.ViewModels"
              xmlns:controls="using:AvaDM.UI.Controls"
-             mc:Ignorable="d" d:DesignWidth="440" d:DesignHeight="420"
+             mc:Ignorable="d" d:DesignWidth="440" d:DesignHeight="480"
              x:Class="AvaDM.UI.Views.AddDownloadView"
              x:DataType="vm:AddDownloadViewModel">
     <Border Background="{DynamicResource SurfaceBrush}"
@@ -27,9 +27,14 @@
             </StackPanel>
 
             <StackPanel Spacing="{StaticResource SpaceXs}">
+                <TextBlock Text="File name" FontSize="{StaticResource LabelSmFontSize}" Foreground="{DynamicResource TextSecondaryBrush}" />
+                <TextBox Text="{Binding FileName}" PlaceholderText="Taken from the link" />
+            </StackPanel>
+
+            <StackPanel Spacing="{StaticResource SpaceXs}">
                 <TextBlock Text="Save to" FontSize="{StaticResource LabelSmFontSize}" Foreground="{DynamicResource TextSecondaryBrush}" />
                 <Grid ColumnDefinitions="*,Auto" ColumnSpacing="{StaticResource SpaceSm}">
-                    <TextBox Grid.Column="0" Text="{Binding DestinationPath}" PlaceholderText="Default download folder" />
+                    <TextBox Grid.Column="0" Text="{Binding SaveDirectory}" PlaceholderText="Default download folder" />
                     <Button Grid.Column="1" Classes="secondary" Content="Browse..." Name="BrowseButton" Click="OnBrowseClick" />
                 </Grid>
             </StackPanel>
@@ -46,8 +51,8 @@
                 </Button>
                 <StackPanel IsVisible="{Binding IsAdvancedExpanded}" Spacing="{StaticResource SpaceSm}" Margin="{StaticResource RowPadding}">
                     <Grid ColumnDefinitions="Auto,*" ColumnSpacing="{StaticResource SpaceSm}">
-                        <TextBlock Grid.Column="0" Text="Chunks" VerticalAlignment="Center" FontSize="{StaticResource BodyMdFontSize}" Foreground="{DynamicResource TextSecondaryBrush}" Width="90" />
-                        <TextBox Grid.Column="1" Text="{Binding ChunkCountInput}" PlaceholderText="Default" />
+                        <TextBlock Grid.Column="0" Text="Connections" VerticalAlignment="Center" FontSize="{StaticResource BodyMdFontSize}" Foreground="{DynamicResource TextSecondaryBrush}" Width="90" />
+                        <TextBox Grid.Column="1" Text="{Binding ChunkCountInput}" PlaceholderText="{Binding ConnectionsPlaceholder}" />
                     </Grid>
                     <Grid ColumnDefinitions="Auto,*" ColumnSpacing="{StaticResource SpaceSm}">
                         <TextBlock Grid.Column="0" Text="Speed limit" VerticalAlignment="Center" FontSize="{StaticResource BodyMdFontSize}" Foreground="{DynamicResource TextSecondaryBrush}" Width="90" />

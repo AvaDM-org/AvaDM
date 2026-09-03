@@ -32,6 +32,7 @@ public sealed partial class DownloadListViewModel : ViewModelBase, IDisposable
     private static readonly TimeSpan SearchDebounceInterval = TimeSpan.FromMilliseconds(250);
 
     private readonly DownloadManager _downloadManager;
+    private readonly DownloadSettings _settings;
     private readonly Action _navigateToSettings;
     private readonly Func<DownloadDoubleClickAction> _getDoubleClickAction;
     private readonly DispatcherTimer _reconcileTimer;
@@ -130,10 +131,12 @@ public sealed partial class DownloadListViewModel : ViewModelBase, IDisposable
 
     public DownloadListViewModel(
         DownloadManager downloadManager,
+        DownloadSettings settings,
         Action navigateToSettings,
         Func<DownloadDoubleClickAction> getDoubleClickAction)
     {
         _downloadManager = downloadManager;
+        _settings = settings;
         _navigateToSettings = navigateToSettings;
         _getDoubleClickAction = getDoubleClickAction;
 
@@ -161,7 +164,7 @@ public sealed partial class DownloadListViewModel : ViewModelBase, IDisposable
     /// (submitted or cancelled) via the two callbacks below.</summary>
     [RelayCommand]
     private void AddDownload() =>
-        ActiveAddDownload = new AddDownloadViewModel(_downloadManager, OnAddDownloadSubmitted, OnAddDownloadCancelled);
+        ActiveAddDownload = new AddDownloadViewModel(_downloadManager, _settings, OnAddDownloadSubmitted, OnAddDownloadCancelled);
 
     private void OnAddDownloadSubmitted(DownloadRecord record, DownloadHandle handle)
     {
