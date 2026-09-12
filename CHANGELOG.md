@@ -9,6 +9,23 @@ Each released version below has a matching `vX.Y.Z` git tag. `.github/workflows/
 the section for the tag it is building and uses it as the GitHub Release notes, so **a release will
 fail fast if its version has no section here**. Add the entry before pushing the tag.
 
+## [2.2.0] - Unreleased
+
+### Added
+
+- **A download queue with a configurable concurrency limit.** ([#25](https://github.com/AvaDM-org/AvaDM/issues/25))
+  - New Settings field **"Max concurrent downloads"** (default 10, next to Connections per
+    download). A download added beyond the limit is persisted as **Queued** instead of starting
+    immediately, and starts automatically once a slot frees up - a running download finishing,
+    failing, or being cancelled, or a running download being **paused** (pausing frees its slot
+    for a queued download to start).
+  - Queued rows can be reordered via their right-click menu's **"Move up in queue"/"Move down in
+    queue"**.
+  - New Settings toggle **"Automatically resume downloads on startup"** (off by default):
+    resumes every download left running, paused, or queued the last time AvaDM closed. Whether
+    on or off, a new toolbar **"Resume downloads"** button always resumes all of them at once on
+    demand.
+
 ## [2.1.0] - 2026-09-12
 
 ### Added
