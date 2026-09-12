@@ -11,6 +11,19 @@ fail fast if its version has no section here**. Add the entry before pushing the
 
 ## [2.0.1] - Unreleased
 
+### Added
+
+- **A toast notification now surfaces when the automatic startup check finds a new AvaDM version**,
+  instead of the user having to notice the Settings page or the tray menu. ([#19](https://github.com/AvaDM-org/AvaDM/issues/19))
+  - Its "Update now" button jumps to Settings and starts the update immediately, exactly as
+    clicking Update Now there would.
+  - The Settings page's update section now shows a progress bar for the download itself, with
+    pause/resume/cancel controls (no open-folder/remove, unlike a download row - the update asset
+    is a throwaway staging file). Cancelling deletes the partially-downloaded file immediately,
+    without a confirmation prompt.
+- **A "back to downloads" button on the Settings page**, next to the page title, using the same
+  bundled svg icon set as the rest of the UI. ([#19](https://github.com/AvaDM-org/AvaDM/issues/19))
+
 ### Changed
 
 - **Downloads-page and Add-Download icons now use a bundled svg icon set instead of OS/emoji
