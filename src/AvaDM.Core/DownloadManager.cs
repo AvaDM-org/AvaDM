@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
+using System.Linq;
 
 namespace AvaDM.Core;
 
@@ -39,7 +40,23 @@ public sealed class DownloadManager
     private readonly DownloadSettings _settings;
     private readonly ConcurrentDictionary<Guid, DownloadHandle> _activeHandles = new();
     private readonly ConcurrentDictionary<Guid, int> _autoRetryAttempts = new();
+
+    /// <summary>Options a still-<see cref="DownloadState.Queued"/> row was originally added/resumed
+    /// with, kept only in memory until <see cref="AdmitQueuedDownloadsAsync"/> starts it - not
+    /// persisted, so a row still queued across an app restart falls back to default options when
+    /// it finally starts. That already matches how every other resume path in this class behaves:
+    /// <see cref="ResumeDownloadCoreAsync"/> has always passed <c>options: null</c>.</summary>
+    private readonly ConcurrentDictionary<Guid, DownloadOptions?> _queuedOptions = new();
+
     private readonly SemaphoreSlim _initLock = new(1, 1);
+
+    /// <summary>Serializes every decision that reads-then-acts on "how many downloads are running
+    /// right now" - <see cref="AddDownloadAsync"/>'s own start-or-queue check and
+    /// <see cref="AdmitQueuedDownloadsAsync"/>'s draining loop - so two callers racing each other
+    /// (e.g. several <see cref="AddDownloadAsync"/> calls in quick succession, or an admission pass
+    /// running at the same moment as a new add) can never both see a free slot and both take it,
+    /// running the process over <see cref="DownloadSettings.DefaultMaxConcurrentDownloads"/>.</summary>
+    private readonly SemaphoreSlim _admissionLock = new(1, 1);
     private bool _initialized;
 
     public DownloadManager(HttpClient client, DownloadSettings settings)
@@ -126,28 +143,103 @@ public sealed class DownloadManager
             }
         }
 
-        var handle = _downloader.StartDownload(uri, resolvedPath, options);
-
         // This must update the existing row in place (same Id) rather than INSERT a second row,
         // which would trip the UNIQUE(Uri, DestinationPath) constraint and, even if it didn't,
         // would hand back a new Id that orphans a UI row already keyed on the old one.
         // RenameDestination targets a path already confirmed conflict-free above, so it always
         // gets a fresh row.
-        Guid id;
+        var id = conflict.HasConflict && resolution is ConflictResolution.Resume or ConflictResolution.Overwrite
+            ? conflict.ExistingRecord!.Id
+            : Guid.NewGuid();
+
+        // Only actually starts the transfer (and only then calls Downloader.StartDownload) if
+        // there's a free concurrency slot right now; otherwise the row below is persisted as
+        // Queued and AdmitQueuedDownloadsAsync starts it later once one opens up.
+        var handle = await TryStartHandleAsync(uri, resolvedPath, options);
+        var state = handle is null ? DownloadState.Queued : DownloadState.Running;
+
         if (conflict.HasConflict && resolution is ConflictResolution.Resume or ConflictResolution.Overwrite)
+            await _repository.ResetForRestartAsync(id, state, handle?.TotalBytes ?? 0);
+        else
+            await _repository.InsertAsync(id, uri.AbsoluteUri, resolvedPath, state, handle?.TotalBytes ?? 0);
+
+        if (handle is null)
         {
-            id = conflict.ExistingRecord!.Id;
-            await _repository.ResetForRestartAsync(id, DownloadState.Running, handle.TotalBytes);
+            _queuedOptions[id] = options;
         }
         else
         {
-            id = Guid.NewGuid();
-            await _repository.InsertAsync(id, uri.AbsoluteUri, resolvedPath, DownloadState.Running, handle.TotalBytes);
+            _activeHandles[id] = handle;
+            SyncToRepository(id, handle);
         }
-        _activeHandles[id] = handle;
-        SyncToRepository(id, handle);
 
         return new AddDownloadResult(true, id, handle, null);
+    }
+
+    private int RunningHandleCount() => _activeHandles.Values.Count(h => h.State == DownloadState.Running);
+
+    /// <summary>Starts a transfer only if there's room under
+    /// <see cref="DownloadSettings.DefaultMaxConcurrentDownloads"/> right now, returning
+    /// <c>null</c> instead of a handle when there isn't. A <see cref="DownloadState.Paused"/>
+    /// handle doesn't count against the limit - pausing frees its slot for a queued download to
+    /// start, and it only reclaims one for itself the next time it's resumed.</summary>
+    private async Task<DownloadHandle?> TryStartHandleAsync(Uri uri, string resolvedPath, DownloadOptions? options)
+    {
+        await _admissionLock.WaitAsync();
+        try
+        {
+            return RunningHandleCount() >= _settings.DefaultMaxConcurrentDownloads
+                ? null
+                : _downloader.StartDownload(uri, resolvedPath, options);
+        }
+        finally
+        {
+            _admissionLock.Release();
+        }
+    }
+
+    /// <summary>Starts as many <see cref="DownloadState.Queued"/> rows, in <c>QueueOrder</c>, as
+    /// there's room for under <see cref="DownloadSettings.DefaultMaxConcurrentDownloads"/>. This
+    /// and <see cref="AddDownloadAsync"/>'s own fast path (via <see cref="TryStartHandleAsync"/>)
+    /// are the only places that ever call <see cref="Downloader.StartDownload"/> - so every event
+    /// that can free or add a slot funnels through one of the two: a download finishing, failing,
+    /// or being cancelled and a running download being paused call this method (see
+    /// <see cref="FinalizeDownloadAsync"/> and the pause branch in <see cref="SyncToRepository"/>);
+    /// a settings change to the concurrency limit, a queue reorder, or a bulk/manual resume are
+    /// expected to call this too. Public because those last three are driven from outside this
+    /// class (the Settings page, a queue-reorder action, <see cref="ResumeAllInterruptedAsync"/>).</summary>
+    public async Task AdmitQueuedDownloadsAsync()
+    {
+        await EnsureInitializedAsync();
+        await _admissionLock.WaitAsync();
+        try
+        {
+            var limit = _settings.DefaultMaxConcurrentDownloads;
+            var running = RunningHandleCount();
+            if (running >= limit)
+                return;
+
+            var queued = (await _repository.GetAllAsync())
+                .Where(r => r.State == DownloadState.Queued)
+                .OrderBy(r => r.QueueOrder);
+
+            foreach (var record in queued)
+            {
+                if (running >= limit)
+                    break;
+
+                _queuedOptions.TryRemove(record.Id, out var options);
+                var handle = _downloader.StartDownload(new Uri(record.Uri), record.DestinationPath, options);
+                await _repository.UpdateStateAsync(record.Id, DownloadState.Running);
+                _activeHandles[record.Id] = handle;
+                SyncToRepository(record.Id, handle);
+                running++;
+            }
+        }
+        finally
+        {
+            _admissionLock.Release();
+        }
     }
 
     public async Task<IReadOnlyList<DownloadRecord>> GetAllDownloadsAsync()
@@ -196,6 +288,7 @@ public sealed class DownloadManager
 
         await _repository.DeleteAsync(id);
         _autoRetryAttempts.TryRemove(id, out _);
+        _queuedOptions.TryRemove(id, out _);
 
         if (deleteFile)
         {
@@ -242,8 +335,16 @@ public sealed class DownloadManager
                 // Expected: Cancel() faults Completion with this.
             }
         }
+        else
+        {
+            // No live handle - a Queued row (or one left over from a previous process) has no
+            // Completion continuation to record the cancellation for it, so this is the only
+            // place that ever will.
+            await _repository.UpdateStateAsync(id, DownloadState.Cancelled);
+        }
 
         _autoRetryAttempts.TryRemove(id, out _);
+        _queuedOptions.TryRemove(id, out _);
 
         try
         {
@@ -294,6 +395,14 @@ public sealed class DownloadManager
         long lastDbWriteTimestamp = 0;
         handle.ProgressChanged += (_, progress) =>
         {
+            // Unthrottled, unlike the DB write below: pausing frees this handle's concurrency
+            // slot, and a queued download waiting on that slot shouldn't have to wait out the
+            // same 3-second window the DB write throttles on. ProgressChanged only fires once per
+            // Pause() call (no further progress ticks arrive while paused), so this can't fire
+            // repeatedly for one pause.
+            if (progress.State == DownloadState.Paused)
+                _ = AdmitQueuedDownloadsAsync();
+
             var now = Stopwatch.GetTimestamp();
             var last = Interlocked.Read(ref lastDbWriteTimestamp);
             if (last != 0 && Stopwatch.GetElapsedTime(last, now) < TimeSpan.FromSeconds(3))
@@ -342,6 +451,13 @@ public sealed class DownloadManager
             // (now-stale) one.
             ((ICollection<KeyValuePair<Guid, DownloadHandle>>)_activeHandles).Remove(new(id, handle));
         }
+
+        // A terminal handle (Completed/Failed/Cancelled) always frees its slot - let the next
+        // queued download in line take it before deciding whether to auto-retry this one, so a
+        // failing download's auto-retry queues behind everything already waiting rather than
+        // cutting in front of it (it goes through AddDownloadAsync just like a manual resume,
+        // which is itself concurrency-aware).
+        _ = AdmitQueuedDownloadsAsync();
 
         if (handle.State == DownloadState.Failed)
             await TryAutoRetryAsync(id, handle);
