@@ -25,6 +25,11 @@ fail fast if its version has no section here**. Add the entry before pushing the
     resumes every download left running, paused, or queued the last time AvaDM closed. Whether
     on or off, a new toolbar **"Resume downloads"** button always resumes all of them at once on
     demand.
+  - Lowering **"Max concurrent downloads"** below what's currently running re-queues the excess
+    downloads (most recently started first) so they pick back up on their own once room exists
+    again, rather than requiring a manual resume.
+  - A queued download can now be paused too, holding it back until explicitly resumed - it's
+    skipped when its turn comes up rather than needing to be removed from the queue.
 
 ## [2.1.0] - 2026-09-12
 
