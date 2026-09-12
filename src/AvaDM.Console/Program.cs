@@ -173,7 +173,18 @@ async void Start(string[] parts)
         return;
     }
 
-    var handle = result.Handle!;
+    // A concurrency-limit hit (see DownloadSettings.DefaultMaxConcurrentDownloads) queues the
+    // download instead of starting it - no handle exists yet. This harness has no notion of
+    // tracking/interacting with a queued-but-not-started row (that's the Avalonia UI's job), so
+    // just say so and leave it out of `handles`; it'll need a fresh `start` once it's running to
+    // be driven from here.
+    if (result.Handle is null)
+    {
+        dashboard.Log($"Queued -> {result.Id}: at the concurrency limit, will start automatically once a slot frees.");
+        return;
+    }
+
+    var handle = result.Handle;
     var id = $"d{nextId++}";
     handles[id] = (result.Id!.Value, handle);
     dashboard.Track(id);
