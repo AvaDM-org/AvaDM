@@ -74,7 +74,7 @@
                     BorderBrush="{DynamicResource BorderBrush}"
                     BorderThickness="0,0,0,1"
                     Padding="{StaticResource ToolbarPadding}">
-                <Grid ColumnDefinitions="220,Auto,*,Auto,Auto,Auto"
+                <Grid ColumnDefinitions="220,Auto,*,Auto,Auto,Auto,Auto"
                       ColumnSpacing="{StaticResource SpaceSm}">
                     <TextBox Grid.Column="0"
                              Text="{Binding SearchText, Mode=TwoWay}"
@@ -111,13 +111,21 @@
 
                     <Button Grid.Column="4"
                             Classes="icon"
+                            IsVisible="{Binding HasInterruptedDownloads}"
+                            Command="{Binding ResumeAllInterruptedCommand}"
+                            ToolTip.Tip="Resume all interrupted downloads">
+                        <Path Classes="buttonIcon" Width="18" Height="18" Data="{StaticResource PlayGeometry}" />
+                    </Button>
+
+                    <Button Grid.Column="5"
+                            Classes="icon"
                             IsVisible="{Binding HasSelection}"
                             Command="{Binding BulkRemoveCommand}"
                             ToolTip.Tip="Remove selected downloads">
                         <Path Classes="buttonIcon" Width="18" Height="18" Data="{StaticResource DeleteGeometry}" />
                     </Button>
 
-                    <Button Grid.Column="5"
+                    <Button Grid.Column="6"
                             Classes="icon"
                             Command="{Binding OpenSettingsCommand}"
                             ToolTip.Tip="Settings">

@@ -137,6 +137,15 @@ public sealed partial class DownloadListViewModel : ViewModelBase, IDisposable
 
     public bool IsBulkRemoveConfirmationOpen => ActiveBulkRemoveConfirmation is not null;
 
+    /// <summary>Drives the toolbar's "Resume downloads" button: enabled whenever at least one row
+    /// is showing the derived Interrupted status (see <see cref="DownloadRowViewModel.DisplayStatus"/>) -
+    /// recomputed on every <see cref="DownloadsChanged"/>, which already fires on exactly the
+    /// events that could add or remove a row from that set (row added/removed, or any row's
+    /// DisplayStatus transitions).</summary>
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(ResumeAllInterruptedCommand))]
+    private bool _hasInterruptedDownloads;
+
     public DownloadListViewModel(
         DownloadManager downloadManager,
         DownloadSettings settings,
@@ -171,11 +180,23 @@ public sealed partial class DownloadListViewModel : ViewModelBase, IDisposable
             ApplyFilter();
         };
 
+        DownloadsChanged += (_, _) => RecomputeHasInterruptedDownloads();
+
         _ = ReconcileAsync();
     }
 
+    private void RecomputeHasInterruptedDownloads() =>
+        HasInterruptedDownloads = _allRows.Any(r => r.DisplayStatus == DownloadDisplayStatus.Interrupted);
+
     [RelayCommand]
     private void OpenSettings() => _navigateToSettings();
+
+    /// <summary>Toolbar "Resume downloads": bulk-resumes every row currently showing as
+    /// Interrupted in one action, instead of the user resuming each one by hand. The same
+    /// DownloadManager method <see cref="DownloadSettings.AutoResumeDownloadsOnStartup"/> triggers
+    /// automatically at startup - see DownloadManager.ResumeAllInterruptedAsync.</summary>
+    [RelayCommand(CanExecute = nameof(HasInterruptedDownloads))]
+    private Task ResumeAllInterrupted() => _downloadManager.ResumeAllInterruptedAsync();
 
     /// <summary>Toolbar trash icon / Delete key: confirm removing every selected row at once.
     /// No-op with nothing selected (the trash icon is hidden then anyway).</summary>
@@ -234,7 +255,7 @@ public sealed partial class DownloadListViewModel : ViewModelBase, IDisposable
             QuickAddText = string.Empty;
     }
 
-    private void OnAddDownloadSubmitted(DownloadRecord record, DownloadHandle handle)
+    private void OnAddDownloadSubmitted(DownloadRecord record, DownloadHandle? handle)
     {
         AddOrUpdateRow(record, handle);
         ActiveAddDownload = null;

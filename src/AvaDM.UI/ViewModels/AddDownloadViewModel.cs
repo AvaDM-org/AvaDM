@@ -19,7 +19,7 @@ public sealed partial class AddDownloadViewModel : ViewModelBase
 {
     private readonly DownloadManager _downloadManager;
     private readonly DownloadSettings _settings;
-    private readonly Action<DownloadRecord, DownloadHandle> _onSubmitted;
+    private readonly Action<DownloadRecord, DownloadHandle?> _onSubmitted;
     private readonly Action _onCancelled;
 
     /// <summary>The file name last auto-derived from the URL. While <see cref="FileName"/> still
@@ -78,7 +78,7 @@ public sealed partial class AddDownloadViewModel : ViewModelBase
     public AddDownloadViewModel(
         DownloadManager downloadManager,
         DownloadSettings settings,
-        Action<DownloadRecord, DownloadHandle> onSubmitted,
+        Action<DownloadRecord, DownloadHandle?> onSubmitted,
         Action onCancelled)
     {
         _downloadManager = downloadManager;
@@ -252,12 +252,16 @@ public sealed partial class AddDownloadViewModel : ViewModelBase
         }
 
         var record = await _downloadManager.GetDownloadAsync(result.Id!.Value);
-        if (record is null || result.Handle is null)
+        if (record is null)
         {
             ErrorMessage = "Download started but its record could not be loaded.";
             return;
         }
 
+        // result.Handle is null when the download queued instead of starting immediately (the
+        // concurrency limit was already reached) - that's still a successful add, not an error;
+        // the row shows up with no live handle (Queued status) and gets one later once
+        // DownloadManager.AdmitQueuedDownloadsAsync actually starts it.
         _onSubmitted(record, result.Handle);
     }
 }

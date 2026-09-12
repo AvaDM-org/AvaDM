@@ -24,6 +24,10 @@
                 <MenuItem Header="Open file" Command="{Binding OpenFileCommand}" />
                 <MenuItem Header="Open containing folder" Command="{Binding OpenContainingFolderCommand}" />
                 <MenuItem Header="Copy download link" Click="OnCopyLink" />
+                <MenuItem Header="Move up in queue" Command="{Binding MoveUpInQueueCommand}"
+                          IsVisible="{Binding CanReorderInQueue}" />
+                <MenuItem Header="Move down in queue" Command="{Binding MoveDownInQueueCommand}"
+                          IsVisible="{Binding CanReorderInQueue}" />
                 <Separator />
                 <MenuItem Header="Remove" Command="{Binding ContextRemoveCommand}" />
             </ContextMenu>
