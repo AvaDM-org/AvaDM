@@ -336,6 +336,10 @@ public sealed partial class DownloadRowViewModel : ViewModelBase
                 DownloadState.Queued => DownloadDisplayStatus.Queued,
                 DownloadState.Running => DownloadDisplayStatus.Running,
                 DownloadState.Paused => DownloadDisplayStatus.Paused,
+                // Shown identically to a normal Paused row - the underlying state is kept
+                // distinct only so admission can skip it (see DownloadState.QueuedPaused), not
+                // because it should look different to the user.
+                DownloadState.QueuedPaused => DownloadDisplayStatus.Paused,
                 DownloadState.Completed => DownloadDisplayStatus.Completed,
                 DownloadState.Failed => DownloadDisplayStatus.Failed,
                 DownloadState.Cancelled => DownloadDisplayStatus.Cancelled,
@@ -358,14 +362,18 @@ public sealed partial class DownloadRowViewModel : ViewModelBase
 
     public bool IsActive => HasActiveHandle && State is DownloadState.Running or DownloadState.Paused or DownloadState.Pending;
 
-    public bool CanPause => HasActiveHandle && State == DownloadState.Running;
+    // A Queued row has no live handle to pause (nothing has started transferring) but can still
+    // be held back from admission - see DownloadManager.PauseQueuedDownloadAsync.
+    public bool CanPause => (HasActiveHandle && State == DownloadState.Running) || State == DownloadState.Queued;
 
     public bool CanResume => (HasActiveHandle && State == DownloadState.Paused)
+        || State == DownloadState.QueuedPaused
         || DisplayStatus is DownloadDisplayStatus.Interrupted or DownloadDisplayStatus.Failed;
 
-    // A Queued row has no live handle (it hasn't started yet) but is still cancellable -
-    // DownloadManager.CancelDownloadAsync persists Cancelled directly for a handle-less row.
-    public bool CanCancel => State == DownloadState.Queued
+    // A Queued (or QueuedPaused) row has no live handle (it hasn't started yet) but is still
+    // cancellable - DownloadManager.CancelDownloadAsync persists Cancelled directly for a
+    // handle-less row.
+    public bool CanCancel => State is DownloadState.Queued or DownloadState.QueuedPaused
         || (HasActiveHandle && State is DownloadState.Running or DownloadState.Paused or DownloadState.Pending);
 
     /// <summary>Whether the "Move up/down in queue" context menu actions apply to this row.
@@ -498,7 +506,18 @@ public sealed partial class DownloadRowViewModel : ViewModelBase
     }
 
     [RelayCommand(CanExecute = nameof(CanPause))]
-    private void Pause() => _handle?.Pause();
+    private async Task Pause()
+    {
+        if (_handle is not null)
+        {
+            _handle.Pause();
+            return;
+        }
+
+        // Queued, no handle yet - hold it back from admission until explicitly resumed.
+        if (await _downloadManager.PauseQueuedDownloadAsync(Id))
+            State = DownloadState.QueuedPaused;
+    }
 
     [RelayCommand(CanExecute = nameof(CanResume))]
     private async Task Resume()
