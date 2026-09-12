@@ -5,8 +5,10 @@ namespace AvaDM.Core;
 /// <see cref="WaitWhilePausedAsync"/> awaits a shared <see cref="TaskCompletionSource"/>
 /// instead of polling, so any number of concurrent callers (e.g. one per download chunk)
 /// can wait on the same pause/resume signal for free - no allocation on the not-paused path.
+/// Public (rather than internal-to-Core) so AvaDM.UI's <c>UpdateService</c> can reuse the same
+/// gate for pausing/resuming a self-update download, instead of duplicating it.
 /// </summary>
-internal sealed class PauseTokenSource
+public sealed class PauseTokenSource
 {
     private volatile TaskCompletionSource? _pauseCompletionSource;
 
