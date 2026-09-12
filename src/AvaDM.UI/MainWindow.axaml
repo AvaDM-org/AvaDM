@@ -24,5 +24,44 @@
         </DataTemplate>
     </Window.DataTemplates>
 
-    <ContentControl Content="{Binding CurrentPageViewModel}" />
+    <Panel>
+        <ContentControl Content="{Binding CurrentPageViewModel}" />
+
+        <!-- Toasts live at the shell level (not per-page) so an update-available toast from a
+             startup check is visible no matter which page is on screen - see
+             MainWindowViewModel.Toasts. -->
+        <ItemsControl ItemsSource="{Binding Toasts}"
+                      HorizontalAlignment="Right"
+                      VerticalAlignment="Bottom"
+                      Margin="{StaticResource PanelPadding}">
+            <ItemsControl.ItemsPanel>
+                <ItemsPanelTemplate>
+                    <StackPanel Spacing="{StaticResource SpaceSm}" />
+                </ItemsPanelTemplate>
+            </ItemsControl.ItemsPanel>
+            <ItemsControl.ItemTemplate>
+                <DataTemplate DataType="vm:ToastViewModel">
+                    <Border Classes="toast">
+                        <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="{StaticResource SpaceSm}">
+                            <TextBlock Grid.Column="0" Text="{Binding Message}"
+                                       Foreground="{DynamicResource TextPrimaryBrush}"
+                                       FontSize="{StaticResource BodyMdFontSize}"
+                                       TextWrapping="Wrap"
+                                       MaxWidth="320"
+                                       VerticalAlignment="Center" />
+                            <Button Grid.Column="1" Classes="primary"
+                                    IsVisible="{Binding HasAction}"
+                                    Command="{Binding InvokeActionCommand}"
+                                    Content="{Binding ActionLabel}" />
+                            <Button Grid.Column="2" Classes="icon"
+                                    Command="{Binding DismissCommand}"
+                                    ToolTip.Tip="Dismiss">
+                                <Path Classes="buttonIcon" Data="{StaticResource CloseGeometry}" />
+                            </Button>
+                        </Grid>
+                    </Border>
+                </DataTemplate>
+            </ItemsControl.ItemTemplate>
+        </ItemsControl>
+    </Panel>
 </Window>

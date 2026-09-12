@@ -1,3 +1,4 @@
+using System.Collections.ObjectModel;
 using AvaDM.Core;
 using AvaDM.UI.Services;
 using CommunityToolkit.Mvvm.ComponentModel;
@@ -13,6 +14,10 @@ namespace AvaDM.UI.ViewModels;
 /// carries a "Settings" entry point, and the Settings page carries its own way back, both wired
 /// through the callbacks below. MainWindow.axaml just swaps <see cref="CurrentPageViewModel"/>
 /// through a ContentControl + DataTemplates - no navigation framework, per the plan.
+///
+/// Toasts also live here rather than on <see cref="DownloadListViewModel"/>: an update-available
+/// toast (see <see cref="ShowUpdateAvailableToast"/>) can fire from a startup check while either
+/// page is on screen, and MainWindow.axaml renders the overlay above whichever page is current.
 /// </summary>
 public sealed partial class MainWindowViewModel : ViewModelBase
 {
@@ -21,6 +26,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
 
     [ObservableProperty]
     private ViewModelBase _currentPageViewModel;
+
+    /// <summary>Transient toast/snackbar notifications - see <see cref="ToastViewModel"/>.</summary>
+    public ObservableCollection<ToastViewModel> Toasts { get; } = new();
 
     public MainWindowViewModel(
         DownloadManager downloadManager,
@@ -34,9 +42,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     {
         _settingsViewModel = new SettingsViewModel(
             settings, uiPreferences, NavigateToDownloads, closeToTray, doubleClickAction,
-            autoUpdateEnabled, updateService, requestAppExit);
+            autoUpdateEnabled, updateService, ShowUpdateAvailableToast, requestAppExit);
         _downloadListViewModel = new DownloadListViewModel(
-            downloadManager, settings, uiPreferences, NavigateToSettings, () => _settingsViewModel.DoubleClickAction);
+            downloadManager, settings, uiPreferences, NavigateToSettings, () => _settingsViewModel.DoubleClickAction, ShowToast);
         _currentPageViewModel = _downloadListViewModel;
     }
 
@@ -53,4 +61,34 @@ public sealed partial class MainWindowViewModel : ViewModelBase
 
     [RelayCommand]
     private void NavigateToSettings() => CurrentPageViewModel = _settingsViewModel;
+
+    /// <summary>Public so callers outside this view model - currently just
+    /// <see cref="App.OnFrameworkInitializationCompleted"/>, notifying that a second launch was
+    /// redirected here - can post a toast without duplicating <see cref="ToastViewModel"/>'s
+    /// wiring.</summary>
+    public void ShowToast(string message) => Toasts.Add(new ToastViewModel(message, RemoveToast));
+
+    /// <summary>Passed into <see cref="SettingsViewModel"/> as the callback for a silent startup
+    /// update check that finds a new version - see that class's <c>CheckForUpdatesAsync</c>.
+    /// Doesn't auto-dismiss (the user may not be looking at the moment it appears) and its
+    /// "Update now" action jumps to the Settings page, where the actual download/pause/resume/
+    /// cancel progress is shown, then starts the install exactly as clicking Settings' own
+    /// Install Update button would.</summary>
+    private void ShowUpdateAvailableToast(UpdateCheckResult update) =>
+        Toasts.Add(new ToastViewModel(
+            $"AvaDM {update.LatestVersion} is available.",
+            RemoveToast,
+            actionLabel: "Update now",
+            onAction: () =>
+            {
+                NavigateToSettings();
+                _settingsViewModel.InstallUpdateCommand.Execute(null);
+            },
+            autoDismiss: false));
+
+    private void RemoveToast(ToastViewModel toast)
+    {
+        toast.Dispose();
+        Toasts.Remove(toast);
+    }
 }

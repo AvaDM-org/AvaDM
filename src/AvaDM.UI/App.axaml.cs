@@ -105,7 +105,7 @@ public partial class App : Application
             SingleInstanceService.Instance?.SetActivationHandler(() => Dispatcher.UIThread.Post(() =>
             {
                 _trayIconService.RestoreWindow();
-                mainWindowViewModel.DownloadListViewModel.ShowToast("AvaDM is already running.");
+                mainWindowViewModel.ShowToast("AvaDM is already running.");
             }));
 
             // A login-autostart entry or applications-menu shortcut written by an earlier run can
