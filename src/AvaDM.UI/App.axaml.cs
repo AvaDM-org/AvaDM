@@ -53,7 +53,14 @@ public partial class App : Application
             var settings = new DownloadSettings();
             var uiPreferences = new UiPreferencesRepository(settings.GetResolvedRepositoryPath());
 
-            var (closeToTray, doubleClickAction, autoUpdateEnabled) = LoadStoredPreferences(uiPreferences);
+            var (closeToTray, doubleClickAction, autoUpdateEnabled, autoResumeDownloadsOnStartup) =
+                LoadStoredPreferences(uiPreferences);
+
+            // Must be applied before DownloadManager is constructed below: it reads this off the
+            // same DownloadSettings instance the first time it initializes (see
+            // DownloadManager.EnsureInitializedAsync), which can happen as early as the downloads
+            // list's first load.
+            settings.AutoResumeDownloadsOnStartup = autoResumeDownloadsOnStartup;
 
             _httpClient = new HttpClient { Timeout = Timeout.InfiniteTimeSpan };
             var downloadManager = new DownloadManager(_httpClient, settings);
@@ -61,7 +68,7 @@ public partial class App : Application
 
             var mainWindowViewModel = new MainWindowViewModel(
                 downloadManager, settings, uiPreferences, closeToTray, doubleClickAction,
-                autoUpdateEnabled, updateService, () => desktop.Shutdown());
+                autoUpdateEnabled, autoResumeDownloadsOnStartup, updateService, () => desktop.Shutdown());
             var window = new MainWindow { DataContext = mainWindowViewModel };
 
             // AvaDM lives in the tray, so the process has to outlive its last window: a
@@ -137,7 +144,7 @@ public partial class App : Application
     /// original theme-only fallback style - a store that can't be read (e.g. permissions issue)
     /// shouldn't block startup, it should just fall back to defaults (static Dark, minimize-to-
     /// tray, double-click opens the file).</summary>
-    private static (bool CloseToTray, DownloadDoubleClickAction DoubleClickAction, bool AutoUpdateEnabled) LoadStoredPreferences(
+    private static (bool CloseToTray, DownloadDoubleClickAction DoubleClickAction, bool AutoUpdateEnabled, bool AutoResumeDownloadsOnStartup) LoadStoredPreferences(
         UiPreferencesRepository uiPreferences)
     {
         try
@@ -161,14 +168,19 @@ public partial class App : Application
             var storedAutoUpdateEnabled = uiPreferences.GetValueAsync(UiPreferencesRepository.AutoUpdateEnabledKey).GetAwaiter().GetResult();
             var autoUpdateEnabled = bool.TryParse(storedAutoUpdateEnabled, out var parsedAutoUpdateEnabled) ? parsedAutoUpdateEnabled : true;
 
-            return (closeToTray, doubleClickAction, autoUpdateEnabled);
+            var storedAutoResumeDownloadsOnStartup =
+                uiPreferences.GetValueAsync(UiPreferencesRepository.AutoResumeDownloadsOnStartupKey).GetAwaiter().GetResult();
+            var autoResumeDownloadsOnStartup =
+                bool.TryParse(storedAutoResumeDownloadsOnStartup, out var parsedAutoResumeDownloadsOnStartup) && parsedAutoResumeDownloadsOnStartup;
+
+            return (closeToTray, doubleClickAction, autoUpdateEnabled, autoResumeDownloadsOnStartup);
         }
         catch
         {
             // Best-effort: keep the static Dark theme default and fall back to minimize-to-tray,
-            // open-file-on-double-click, and auto-update-on if the preferences store can't be
-            // read, rather than blocking startup on it.
-            return (true, DownloadDoubleClickAction.OpenFile, true);
+            // open-file-on-double-click, auto-update-on, and auto-resume-on-startup-off if the
+            // preferences store can't be read, rather than blocking startup on it.
+            return (true, DownloadDoubleClickAction.OpenFile, true, false);
         }
     }
 }

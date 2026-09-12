@@ -66,6 +66,17 @@
                     </Grid>
 
                     <Grid ColumnDefinitions="*,Auto" ColumnSpacing="{StaticResource SpaceSm}">
+                        <TextBlock Grid.Column="0" Text="Max concurrent downloads"
+                                   ToolTip.Tip="How many downloads run at once. A download added beyond this limit is queued and starts automatically once a slot frees up - see the downloads list's Queued rows."
+                                   FontSize="{StaticResource BodyMdFontSize}"
+                                   Foreground="{DynamicResource TextSecondaryBrush}"
+                                   VerticalAlignment="Center" />
+                        <NumericUpDown Grid.Column="1" Value="{Binding MaxConcurrentDownloads, Mode=TwoWay}"
+                                       Minimum="1" Maximum="100" Increment="1"
+                                       Width="{StaticResource SettingsNumericFieldWidth}" />
+                    </Grid>
+
+                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="{StaticResource SpaceSm}">
                         <TextBlock Grid.Column="0" Text="Max retry attempts"
                                    FontSize="{StaticResource BodyMdFontSize}"
                                    Foreground="{DynamicResource TextSecondaryBrush}"
@@ -290,6 +301,40 @@
                             <Button Classes="secondary" Content="Don't Start with System"
                                     Command="{Binding SelectStartWithSystemDisabledCommand}"
                                     IsVisible="{Binding !IsStartWithSystemDisabledSelected}" />
+                        </Panel>
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+
+            <Border Background="{DynamicResource SurfaceBrush}"
+                    BorderBrush="{DynamicResource BorderBrush}"
+                    BorderThickness="1"
+                    CornerRadius="{StaticResource RadiusCard}"
+                    Padding="{StaticResource PanelPadding}">
+                <StackPanel Spacing="{StaticResource SpaceSm}">
+                    <TextBlock Text="Startup"
+                               FontSize="{StaticResource HeadingSmFontSize}"
+                               FontWeight="{StaticResource HeadingSmFontWeight}"
+                               Foreground="{DynamicResource TextPrimaryBrush}" />
+                    <TextBlock Text="Automatically resume every download left running, paused, or queued the last time AvaDM closed?"
+                               FontSize="{StaticResource BodyMdFontSize}"
+                               Foreground="{DynamicResource TextSecondaryBrush}" />
+                    <StackPanel Orientation="Horizontal" Spacing="{StaticResource SpaceXs}">
+                        <Panel>
+                            <Button Classes="primary" Content="Resume Automatically"
+                                    Command="{Binding SelectAutoResumeDownloadsOnStartupEnabledCommand}"
+                                    IsVisible="{Binding IsAutoResumeDownloadsOnStartupEnabledSelected}" />
+                            <Button Classes="secondary" Content="Resume Automatically"
+                                    Command="{Binding SelectAutoResumeDownloadsOnStartupEnabledCommand}"
+                                    IsVisible="{Binding !IsAutoResumeDownloadsOnStartupEnabledSelected}" />
+                        </Panel>
+                        <Panel>
+                            <Button Classes="primary" Content="Don't Resume Automatically"
+                                    Command="{Binding SelectAutoResumeDownloadsOnStartupDisabledCommand}"
+                                    IsVisible="{Binding IsAutoResumeDownloadsOnStartupDisabledSelected}" />
+                            <Button Classes="secondary" Content="Don't Resume Automatically"
+                                    Command="{Binding SelectAutoResumeDownloadsOnStartupDisabledCommand}"
+                                    IsVisible="{Binding !IsAutoResumeDownloadsOnStartupDisabledSelected}" />
                         </Panel>
                     </StackPanel>
                 </StackPanel>

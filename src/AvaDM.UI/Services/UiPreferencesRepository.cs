@@ -17,6 +17,14 @@ public sealed class UiPreferencesRepository(string dbPath)
     public const string DoubleClickActionKey = "DoubleClickAction";
     public const string AutoUpdateEnabledKey = "AutoUpdateEnabled";
 
+    /// <summary>Mirrors <see cref="AvaDM.Core.DownloadSettings.AutoResumeDownloadsOnStartup"/>.
+    /// Unlike the plain staged DownloadSettings fields (chunk count, retries, ...), which reset to
+    /// their code defaults on every launch since DownloadSettings itself isn't persisted, this one
+    /// has to survive a restart to do anything at all - its whole purpose is deciding what happens
+    /// the *next* time the app starts, so App.axaml.cs reads it back and applies it to a fresh
+    /// DownloadSettings before DownloadManager ever initializes.</summary>
+    public const string AutoResumeDownloadsOnStartupKey = "AutoResumeDownloadsOnStartup";
+
     /// <summary>JSON blob describing the downloads-table layout: column display order, which
     /// columns are hidden, and the active sort column/direction. Written by
     /// <see cref="AvaDM.UI.ViewModels.DownloadColumnsViewModel"/>; column widths are deliberately

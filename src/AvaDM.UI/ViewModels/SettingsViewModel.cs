@@ -17,6 +17,7 @@ namespace AvaDM.UI.ViewModels;
 public sealed partial class SettingsViewModel : ViewModelBase
 {
     private readonly DownloadSettings _settings;
+    private readonly DownloadManager _downloadManager;
     private readonly UiPreferencesRepository _uiPreferences;
     private readonly Action _navigateToDownloads;
     private readonly UpdateService _updateService;
@@ -49,6 +50,22 @@ public sealed partial class SettingsViewModel : ViewModelBase
 
     [ObservableProperty]
     private int _autoRetryAttempts;
+
+    [ObservableProperty]
+    private int _maxConcurrentDownloads;
+
+    /// <summary>Whether DownloadManager automatically resumes everything left "Interrupted" (see
+    /// <see cref="AvaDM.Core.DownloadSettings.AutoResumeDownloadsOnStartup"/>) the next time the
+    /// app starts. Persisted immediately through <see cref="UiPreferencesRepository"/>, like the
+    /// theme/close-to-tray/auto-update toggles above, rather than staged until Save() - unlike
+    /// those, a plain DownloadSettings field alone can't make this setting do anything at all
+    /// across a restart (DownloadSettings itself resets to code defaults on every launch), so
+    /// App.axaml.cs reads the persisted value back and applies it before DownloadManager first
+    /// initializes.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsAutoResumeDownloadsOnStartupEnabledSelected))]
+    [NotifyPropertyChangedFor(nameof(IsAutoResumeDownloadsOnStartupDisabledSelected))]
+    private bool _autoResumeDownloadsOnStartup;
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(HasError))]
@@ -168,16 +185,19 @@ public sealed partial class SettingsViewModel : ViewModelBase
 
     public SettingsViewModel(
         DownloadSettings settings,
+        DownloadManager downloadManager,
         UiPreferencesRepository uiPreferences,
         Action navigateToDownloads,
         bool closeToTray,
         DownloadDoubleClickAction doubleClickAction,
         bool autoUpdateEnabled,
+        bool autoResumeDownloadsOnStartup,
         UpdateService updateService,
         Action<UpdateCheckResult> onUpdateAvailable,
         Action requestAppExit)
     {
         _settings = settings;
+        _downloadManager = downloadManager;
         _uiPreferences = uiPreferences;
         _navigateToDownloads = navigateToDownloads;
         _updateService = updateService;
@@ -192,6 +212,8 @@ public sealed partial class SettingsViewModel : ViewModelBase
         _retryBaseDelaySecondsInput = settings.DefaultRetryBaseDelay.TotalSeconds.ToString("0.##");
         _inactivityTimeoutSecondsInput = settings.DefaultInactivityTimeout.TotalSeconds.ToString("0.##");
         _autoRetryAttempts = settings.DefaultAutoRetryAttempts;
+        _maxConcurrentDownloads = settings.DefaultMaxConcurrentDownloads;
+        _autoResumeDownloadsOnStartup = autoResumeDownloadsOnStartup;
         _isDarkTheme = Application.Current!.RequestedThemeVariant == ThemeVariant.Dark;
         _closeToTray = closeToTray;
         _doubleClickAction = doubleClickAction;
@@ -245,6 +267,10 @@ public sealed partial class SettingsViewModel : ViewModelBase
     public bool IsAutoUpdateEnabledSelected => AutoUpdateEnabled;
 
     public bool IsAutoUpdateDisabledSelected => !AutoUpdateEnabled;
+
+    public bool IsAutoResumeDownloadsOnStartupEnabledSelected => AutoResumeDownloadsOnStartup;
+
+    public bool IsAutoResumeDownloadsOnStartupDisabledSelected => !AutoResumeDownloadsOnStartup;
 
     public bool HasUpdateStatusMessage => !string.IsNullOrEmpty(UpdateStatusMessage);
 
@@ -340,6 +366,20 @@ public sealed partial class SettingsViewModel : ViewModelBase
     {
         AutoUpdateEnabled = false;
         await _uiPreferences.SetValueAsync(UiPreferencesRepository.AutoUpdateEnabledKey, "false");
+    }
+
+    [RelayCommand]
+    private async Task SelectAutoResumeDownloadsOnStartupEnabled()
+    {
+        AutoResumeDownloadsOnStartup = true;
+        await _uiPreferences.SetValueAsync(UiPreferencesRepository.AutoResumeDownloadsOnStartupKey, "true");
+    }
+
+    [RelayCommand]
+    private async Task SelectAutoResumeDownloadsOnStartupDisabled()
+    {
+        AutoResumeDownloadsOnStartup = false;
+        await _uiPreferences.SetValueAsync(UiPreferencesRepository.AutoResumeDownloadsOnStartupKey, "false");
     }
 
     /// <summary>Runs a check without user-facing chrome around it - used for the silent
@@ -499,7 +539,7 @@ public sealed partial class SettingsViewModel : ViewModelBase
     }
 
     [RelayCommand]
-    private void Save()
+    private async Task Save()
     {
         ErrorMessage = null;
         StatusMessage = null;
@@ -524,6 +564,12 @@ public sealed partial class SettingsViewModel : ViewModelBase
             return;
         }
 
+        if (MaxConcurrentDownloads <= 0)
+        {
+            ErrorMessage = "Max concurrent downloads must be at least 1.";
+            return;
+        }
+
         _settings.DefaultDownloadDirectory = DownloadDirectory.Trim();
         _settings.DefaultChunkCount = ChunkCount;
         _settings.DefaultSpeedLimitBytesPerSecond = SpeedLimitBytesPerSecond;
@@ -534,6 +580,13 @@ public sealed partial class SettingsViewModel : ViewModelBase
         _settings.DefaultRetryBaseDelay = TimeSpan.FromSeconds(retryBaseDelaySeconds);
         _settings.DefaultInactivityTimeout = TimeSpan.FromSeconds(inactivityTimeoutSeconds);
         _settings.DefaultAutoRetryAttempts = AutoRetryAttempts;
+        _settings.DefaultMaxConcurrentDownloads = MaxConcurrentDownloads;
+
+        // A raised limit should let already-queued downloads start right away rather than wait
+        // for the next unrelated trigger (a download finishing, pausing, ...) - a no-op if the
+        // limit was lowered or unchanged, or if nothing is queued.
+        await _downloadManager.AdmitQueuedDownloadsAsync();
+
         StatusMessage = "Settings saved.";
     }
 }
