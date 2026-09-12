@@ -384,6 +384,58 @@ public sealed class DownloadManager
         return await AddDownloadAsync(new Uri(record.Uri), record.DestinationPath, null, new ConflictResolution.Resume());
     }
 
+    /// <summary>Moves a queued download one place earlier in the queue, swapping <c>QueueOrder</c>
+    /// with whichever queued row is currently ahead of it. Returns <c>false</c> (a no-op) if the
+    /// row isn't found, isn't <see cref="DownloadState.Queued"/>, or is already at the front.</summary>
+    public Task<bool> MoveQueuedDownloadUpAsync(Guid id) => SwapQueueOrderWithNeighborAsync(id, offset: -1);
+
+    /// <summary>Same as <see cref="MoveQueuedDownloadUpAsync"/>, one place later instead.</summary>
+    public Task<bool> MoveQueuedDownloadDownAsync(Guid id) => SwapQueueOrderWithNeighborAsync(id, offset: 1);
+
+    private async Task<bool> SwapQueueOrderWithNeighborAsync(Guid id, int offset)
+    {
+        await EnsureInitializedAsync();
+
+        var queued = (await _repository.GetAllAsync())
+            .Where(r => r.State == DownloadState.Queued)
+            .OrderBy(r => r.QueueOrder)
+            .ToList();
+
+        var index = queued.FindIndex(r => r.Id == id);
+        var neighborIndex = index + offset;
+        if (index < 0 || neighborIndex < 0 || neighborIndex >= queued.Count)
+            return false;
+
+        var current = queued[index];
+        var neighbor = queued[neighborIndex];
+        await _repository.UpdateQueueOrderAsync(current.Id, neighbor.QueueOrder);
+        await _repository.UpdateQueueOrderAsync(neighbor.Id, current.QueueOrder);
+        return true;
+    }
+
+    /// <summary>Bulk-resumes every download left <see cref="DownloadState.Pending"/>,
+    /// <see cref="DownloadState.Running"/>, <see cref="DownloadState.Paused"/>, or
+    /// <see cref="DownloadState.Queued"/> by a previous process - i.e. every row with no live
+    /// handle in this one, which is exactly what the UI shows with its derived "Interrupted"
+    /// status. Flips each straight to <see cref="DownloadState.Queued"/>, preserving its
+    /// <c>QueueOrder</c> so a download's place in line survives the round trip, then runs one
+    /// <see cref="AdmitQueuedDownloadsAsync"/> pass. Backs both the manual "Resume downloads" UI
+    /// action and <see cref="DownloadSettings.AutoResumeDownloadsOnStartup"/> (see
+    /// <see cref="EnsureInitializedAsync"/>), so there's one code path for both instead of two.</summary>
+    public async Task ResumeAllInterruptedAsync()
+    {
+        await EnsureInitializedAsync();
+
+        var interrupted = (await _repository.GetAllAsync())
+            .Where(r => r.State is DownloadState.Pending or DownloadState.Running or DownloadState.Paused or DownloadState.Queued)
+            .Where(r => GetActiveHandle(r.Id) is null);
+
+        foreach (var record in interrupted)
+            await _repository.UpdateStateAsync(record.Id, DownloadState.Queued);
+
+        await AdmitQueuedDownloadsAsync();
+    }
+
     private string ResolvePath(Uri uri, string? destinationPath) =>
         Path.GetFullPath(_downloader.ResolveDestinationPath(uri, destinationPath));
 
@@ -487,6 +539,14 @@ public sealed class DownloadManager
             handle.Log($"Automatic retry could not be started: {result.Error}");
     }
 
+    /// <summary>Runs the real initialization exactly once per <see cref="DownloadManager"/>
+    /// instance (the double-checked <c>_initialized</c> flag guarantees that), and - only for
+    /// whichever caller was the one to actually perform it - follows up with
+    /// <see cref="ResumeAllInterruptedAsync"/> when <see cref="DownloadSettings.AutoResumeDownloadsOnStartup"/>
+    /// is on. Every other concurrent caller returns before reaching that point, so it can't run
+    /// twice; a caller that returns early may occasionally observe repository state fractionally
+    /// ahead of the resume-all pass completing, which is fine - nothing here promises otherwise,
+    /// and the UI already reconciles against the repository on its own poll.</summary>
     private async Task EnsureInitializedAsync()
     {
         if (_initialized)
@@ -504,5 +564,8 @@ public sealed class DownloadManager
         {
             _initLock.Release();
         }
+
+        if (_settings.AutoResumeDownloadsOnStartup)
+            await ResumeAllInterruptedAsync();
     }
 }
