@@ -42,9 +42,15 @@
             <StackPanel Spacing="{StaticResource SpaceXs}">
                 <Button Classes="icon" Command="{Binding ToggleAdvancedCommand}" HorizontalAlignment="Left">
                     <StackPanel Orientation="Horizontal" Spacing="{StaticResource SpaceXs}">
-                        <Panel>
-                            <TextBlock Text="&#9656;" IsVisible="{Binding !IsAdvancedExpanded}" />
-                            <TextBlock Text="&#9662;" IsVisible="{Binding IsAdvancedExpanded}" />
+                        <Panel Width="16" Height="16">
+                            <Path Classes="buttonIcon" Data="{StaticResource ChevronRightGeometry}"
+                                  IsVisible="{Binding !IsAdvancedExpanded}" />
+                            <Path Classes="buttonIcon" Data="{StaticResource ChevronRightGeometry}"
+                                  IsVisible="{Binding IsAdvancedExpanded}">
+                                <Path.RenderTransform>
+                                    <RotateTransform Angle="90" />
+                                </Path.RenderTransform>
+                            </Path>
                         </Panel>
                         <TextBlock Text="Advanced options" FontSize="{StaticResource BodyMdFontSize}" />
                     </StackPanel>
