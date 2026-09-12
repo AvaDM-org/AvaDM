@@ -68,21 +68,31 @@
                 <StackPanel Grid.Column="1" Orientation="Horizontal"
                             Spacing="{StaticResource SpaceXs}"
                             HorizontalAlignment="Right" VerticalAlignment="Center">
-                    <Button Classes="icon" Content="&#10074;&#10074;"
+                    <Button Classes="icon"
                             Command="{Binding PauseCommand}" IsVisible="{Binding CanPause}"
-                            ToolTip.Tip="Pause" />
-                    <Button Classes="icon" Content="&#9654;"
+                            ToolTip.Tip="Pause">
+                        <Path Classes="buttonIcon" Data="{StaticResource PauseGeometry}" />
+                    </Button>
+                    <Button Classes="icon"
                             Command="{Binding ResumeCommand}" IsVisible="{Binding CanResume}"
-                            ToolTip.Tip="Resume" />
-                    <Button Classes="icon" Content="&#10005;"
+                            ToolTip.Tip="Resume">
+                        <Path Classes="buttonIcon" Data="{StaticResource PlayGeometry}" />
+                    </Button>
+                    <Button Classes="icon"
                             Command="{Binding CancelCommand}" IsVisible="{Binding CanCancel}"
-                            ToolTip.Tip="Cancel" />
-                    <Button Classes="icon" Content="&#128193;"
+                            ToolTip.Tip="Cancel">
+                        <Path Classes="buttonIcon" Data="{StaticResource CloseGeometry}" />
+                    </Button>
+                    <Button Classes="icon"
                             Command="{Binding OpenContainingFolderCommand}"
-                            ToolTip.Tip="Open containing folder" />
-                    <Button Classes="icon" Content="&#128465;"
+                            ToolTip.Tip="Open containing folder">
+                        <Path Classes="buttonIcon" Data="{StaticResource FolderGeometry}" />
+                    </Button>
+                    <Button Classes="icon"
                             Command="{Binding RemoveCommand}"
-                            ToolTip.Tip="Remove" />
+                            ToolTip.Tip="Remove">
+                        <Path Classes="buttonIcon" Data="{StaticResource DeleteGeometry}" />
+                    </Button>
                 </StackPanel>
             </Grid>
 
