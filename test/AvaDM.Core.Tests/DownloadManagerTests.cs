@@ -502,15 +502,15 @@ public sealed class DownloadManagerTests : IDisposable
         settings.DefaultMaxConcurrentDownloads = 1;
         await manager.EnforceConcurrencyLimitAsync();
 
-        var aHandle = manager.GetActiveHandle(a.Id!.Value)!;
-        var bHandle = manager.GetActiveHandle(b.Id!.Value)!;
-        var states = new[] { aHandle.State, bHandle.State };
-        Assert.Equal(1, states.Count(s => s == DownloadState.Running));
-        Assert.Equal(1, states.Count(s => s == DownloadState.Paused));
+        // B has the higher QueueOrder (added after A), so it's the one bumped first - re-queued
+        // (not merely paused), so it picks back up on its own once room exists again rather than
+        // needing a manual resume.
+        Assert.NotNull(manager.GetActiveHandle(a.Id!.Value));
+        Assert.Equal(DownloadState.Running, manager.GetActiveHandle(a.Id!.Value)!.State);
+        Assert.Null(manager.GetActiveHandle(b.Id!.Value));
 
-        // B has the higher QueueOrder (added after A), so it's the one paused first.
-        Assert.Equal(DownloadState.Running, aHandle.State);
-        Assert.Equal(DownloadState.Paused, bHandle.State);
+        var bRecord = await manager.GetDownloadAsync(b.Id!.Value);
+        Assert.Equal(DownloadState.Queued, bRecord!.State);
 
         var cleanupA = await manager.CancelDownloadAsync(a.Id!.Value);
         Assert.True(cleanupA.Success);
@@ -559,6 +559,110 @@ public sealed class DownloadManagerTests : IDisposable
         Assert.True(cleanupA.Success);
         var cleanupB = await manager.CancelDownloadAsync(b.Id!.Value);
         Assert.True(cleanupB.Success);
+    }
+
+    /// <summary>Stress-test regression for a second bug found in manual testing of #25: resuming
+    /// a paused download cancels its stale handle internally before persisting the new state, and
+    /// that stale handle's own "I'm Cancelled" write (from its independent finalization
+    /// continuation) could previously land *after* the new state was written, silently reverting
+    /// it - observed as a download the user never cancelled ending up stuck Cancelled after
+    /// repeated pause/resume cycling. DownloadManager now awaits the stale handle's full
+    /// finalization (not just its Completion task) before writing anything new for that id.</summary>
+    [Fact]
+    public async Task RepeatedPauseAndResumeCycling_NeverLeavesADownloadIncorrectlyCancelled()
+    {
+        var payload = CreatePayload(64 * 1024);
+        await using var serverA = await LocalHttpServer.StartAsync(payload, holdBody: true);
+        await using var serverB = await LocalHttpServer.StartAsync(payload, holdBody: true);
+        using var client = CreateHttpClient();
+        var manager = CreateManager(client, maxConcurrentDownloads: 1);
+
+        var a = await manager.AddDownloadAsync(serverA.Uri, Path.Combine(_tempDirectory, "a.bin"));
+        await serverA.GetHeadersSent;
+
+        var b = await manager.AddDownloadAsync(serverB.Uri, Path.Combine(_tempDirectory, "b.bin"));
+        Assert.Null(b.Handle); // queued - A holds the only slot
+
+        for (var i = 0; i < 15; i++)
+        {
+            var aHandle = manager.GetActiveHandle(a.Id!.Value);
+            var bHandle = manager.GetActiveHandle(b.Id!.Value);
+
+            if (aHandle is { State: DownloadState.Running })
+            {
+                aHandle.Pause();
+                Assert.True((await manager.ResumeDownloadAsync(b.Id!.Value)).Success);
+            }
+            else if (bHandle is { State: DownloadState.Running })
+            {
+                bHandle.Pause();
+                Assert.True((await manager.ResumeDownloadAsync(a.Id!.Value)).Success);
+            }
+
+            await Task.Delay(20); // let the admission/finalization chain settle before checking
+
+            var recordA = await manager.GetDownloadAsync(a.Id!.Value);
+            var recordB = await manager.GetDownloadAsync(b.Id!.Value);
+            Assert.NotEqual(DownloadState.Cancelled, recordA!.State);
+            Assert.NotEqual(DownloadState.Cancelled, recordB!.State);
+        }
+
+        var cleanupA = await manager.CancelDownloadAsync(a.Id!.Value);
+        Assert.True(cleanupA.Success);
+        var cleanupB = await manager.CancelDownloadAsync(b.Id!.Value);
+        Assert.True(cleanupB.Success);
+    }
+
+    [Fact]
+    public async Task PauseQueuedDownloadAsync_HeldBackDownloadIsSkippedUntilResumed()
+    {
+        var payload = CreatePayload(64 * 1024);
+        await using var serverA = await LocalHttpServer.StartAsync(payload, holdBody: true);
+        await using var serverB = await LocalHttpServer.StartAsync(payload, holdBody: true);
+        using var client = CreateHttpClient();
+        var manager = CreateManager(client, maxConcurrentDownloads: 1);
+
+        var a = await manager.AddDownloadAsync(serverA.Uri, Path.Combine(_tempDirectory, "a.bin"));
+        await serverA.GetHeadersSent;
+
+        var b = await manager.AddDownloadAsync(serverB.Uri, Path.Combine(_tempDirectory, "b.bin"));
+        Assert.Null(b.Handle); // queued behind A
+
+        var paused = await manager.PauseQueuedDownloadAsync(b.Id!.Value);
+        Assert.True(paused);
+        var recordB = await manager.GetDownloadAsync(b.Id!.Value);
+        Assert.Equal(DownloadState.QueuedPaused, recordB!.State);
+
+        // Free A's slot - B must be skipped (stays QueuedPaused, no handle) since it was held back.
+        var cancelledA = await manager.CancelDownloadAsync(a.Id!.Value);
+        Assert.True(cancelledA.Success);
+        await Task.Delay(100); // give any admission pass a chance to (wrongly) pick B up anyway
+        Assert.Null(manager.GetActiveHandle(b.Id!.Value));
+        recordB = await manager.GetDownloadAsync(b.Id!.Value);
+        Assert.Equal(DownloadState.QueuedPaused, recordB!.State);
+
+        // Resuming flips it back to Queued and it gets admitted now that the slot is free.
+        var resumedB = await manager.ResumeDownloadAsync(b.Id!.Value);
+        Assert.True(resumedB.Success);
+        Assert.NotNull(resumedB.Handle);
+
+        var cleanupB = await manager.CancelDownloadAsync(b.Id!.Value);
+        Assert.True(cleanupB.Success);
+    }
+
+    [Fact]
+    public async Task PauseQueuedDownloadAsync_NonQueuedRow_IsANoOp()
+    {
+        var payload = CreatePayload(4 * 1024);
+        await using var server = await LocalHttpServer.StartAsync(payload, holdBody: false);
+        using var client = CreateHttpClient();
+        var manager = CreateManager(client);
+
+        var added = await manager.AddDownloadAsync(server.Uri, Path.Combine(_tempDirectory, "running.bin"));
+        Assert.NotNull(added.Handle); // starts immediately - not Queued
+
+        var paused = await manager.PauseQueuedDownloadAsync(added.Id!.Value);
+        Assert.False(paused);
     }
 
     [Fact]
@@ -798,6 +902,21 @@ public sealed class DownloadManagerTests : IDisposable
             {
             }
             catch (ObjectDisposedException) when (_stop.IsCancellationRequested)
+            {
+            }
+            // _listener.Stop() (called from DisposeAsync) can race a pending
+            // AcceptTcpClientAsync call: depending on exactly when the underlying socket is torn
+            // down, the pending accept can observe it as "not listening" or a raw socket error
+            // instead of the cleaner OperationCanceledException/ObjectDisposedException above -
+            // all four are the same benign "we're shutting down" outcome, just surfaced
+            // differently depending on timing. More test classes now run more concurrent
+            // LocalHttpServer instances in parallel (see #25's queue tests), which made this
+            // pre-existing shutdown race in the test harness itself show up more often - nothing
+            // to do with the production code under test.
+            catch (InvalidOperationException) when (_stop.IsCancellationRequested)
+            {
+            }
+            catch (SocketException) when (_stop.IsCancellationRequested)
             {
             }
         }
