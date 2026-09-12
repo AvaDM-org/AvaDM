@@ -159,9 +159,21 @@ public sealed class DownloadManager
         var state = handle is null ? DownloadState.Queued : DownloadState.Running;
 
         if (conflict.HasConflict && resolution is ConflictResolution.Resume or ConflictResolution.Overwrite)
-            await _repository.ResetForRestartAsync(id, state, handle?.TotalBytes ?? 0);
+        {
+            // Queuing (handle is null) under Resume means the .avadm footer's progress is still
+            // genuinely on disk, untouched - preserve BytesDownloaded/TotalBytes rather than
+            // flashing the row to 0 while it waits for a slot, since nothing has actually
+            // restarted yet. Overwrite already deleted the footer above regardless of whether
+            // this queues or starts immediately, so resetting to 0 there is honest either way.
+            if (handle is null && resolution is ConflictResolution.Resume)
+                await _repository.UpdateStateAsync(id, state);
+            else
+                await _repository.ResetForRestartAsync(id, state, handle?.TotalBytes ?? 0);
+        }
         else
+        {
             await _repository.InsertAsync(id, uri.AbsoluteUri, resolvedPath, state, handle?.TotalBytes ?? 0);
+        }
 
         if (handle is null)
         {

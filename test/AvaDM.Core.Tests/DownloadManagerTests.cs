@@ -434,6 +434,46 @@ public sealed class DownloadManagerTests : IDisposable
         Assert.True(cleanup.Success);
     }
 
+    /// <summary>Regression test for a bug found in manual UI testing of #25: pausing A frees its
+    /// slot, B is added and takes it, then the user resumes A from the UI - which used to call
+    /// DownloadHandle.Resume() directly on A's still-live (merely paused) handle, bypassing
+    /// DownloadManager's admission check entirely and leaving both A and B running at once over a
+    /// concurrency limit of 1. DownloadRowViewModel.Resume() no longer has that direct-resume fast
+    /// path - every resume, paused or not, now goes through DownloadManager.ResumeDownloadAsync,
+    /// which is admission-gated exactly like a fresh add.</summary>
+    [Fact]
+    public async Task ResumeDownloadAsync_PausedHandleWhoseSlotWasTakenByAnother_QueuesInsteadOfRunningBoth()
+    {
+        var payload = CreatePayload(64 * 1024);
+        await using var serverA = await LocalHttpServer.StartAsync(payload, holdBody: true);
+        await using var serverB = await LocalHttpServer.StartAsync(payload, holdBody: true);
+        using var client = CreateHttpClient();
+        var manager = CreateManager(client, maxConcurrentDownloads: 1);
+
+        var a = await manager.AddDownloadAsync(serverA.Uri, Path.Combine(_tempDirectory, "a.bin"));
+        await serverA.GetHeadersSent;
+        a.Handle!.Pause();
+
+        var b = await manager.AddDownloadAsync(serverB.Uri, Path.Combine(_tempDirectory, "b.bin"));
+        Assert.NotNull(b.Handle); // admitted immediately - A's pause freed the only slot
+        await serverB.GetHeadersSent;
+
+        var resumed = await manager.ResumeDownloadAsync(a.Id!.Value);
+
+        Assert.True(resumed.Success);
+        Assert.Null(resumed.Handle); // queued, not resumed - the slot is still taken by B
+        Assert.Null(manager.GetActiveHandle(a.Id!.Value));
+        Assert.NotNull(manager.GetActiveHandle(b.Id!.Value)); // B is unaffected, still the only one running
+
+        var recordA = await manager.GetDownloadAsync(a.Id!.Value);
+        Assert.Equal(DownloadState.Queued, recordA!.State);
+
+        var cleanupA = await manager.CancelDownloadAsync(a.Id!.Value);
+        Assert.True(cleanupA.Success);
+        var cleanupB = await manager.CancelDownloadAsync(b.Id!.Value);
+        Assert.True(cleanupB.Success);
+    }
+
     [Fact]
     public async Task MoveQueuedDownloadUpAsync_ChangesAdmissionOrder()
     {
