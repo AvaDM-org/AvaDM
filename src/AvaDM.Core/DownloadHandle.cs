@@ -9,7 +9,13 @@ public enum DownloadState
     Paused,
     Completed,
     Failed,
-    Cancelled
+    Cancelled,
+
+    /// <summary>Waiting for a free concurrency slot - see <see cref="DownloadManager"/>'s queue
+    /// admission logic. Added last, not alphabetically/logically placed above, because
+    /// <see cref="DownloadRepository"/> persists this enum as a raw integer ordinal; inserting a
+    /// value anywhere but the end would silently reinterpret every already-stored row's state.</summary>
+    Queued
 }
 
 public record DownloadOptions
