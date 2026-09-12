@@ -9,14 +9,19 @@
              x:DataType="vm:SettingsViewModel">
     <ScrollViewer>
         <StackPanel Margin="{StaticResource PanelPadding}" Spacing="{StaticResource SpaceMd}">
-            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="{StaticResource SpaceMd}">
-                <TextBlock Grid.Column="0"
+            <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="{StaticResource SpaceSm}">
+                <Button Grid.Column="0" Classes="icon"
+                        Command="{Binding CloseSettingsCommand}"
+                        ToolTip.Tip="Back to downloads">
+                    <Path Classes="buttonIcon" Data="{StaticResource ChevronLeftGeometry}" />
+                </Button>
+                <TextBlock Grid.Column="1"
                            Text="Settings"
                            FontSize="{StaticResource HeadingLgFontSize}"
                            FontWeight="{StaticResource HeadingLgFontWeight}"
                            Foreground="{DynamicResource TextPrimaryBrush}"
                            VerticalAlignment="Center" />
-                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="{StaticResource SpaceSm}" VerticalAlignment="Center">
+                <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="{StaticResource SpaceSm}" VerticalAlignment="Center">
                     <HyperlinkButton NavigateUri="https://github.com/AvaDM-org/AvaDM"
                                      ToolTip.Tip="Visit GitHub repository">
                         <Border Background="White"
@@ -338,6 +343,35 @@
                         <Button Grid.Column="3" Classes="primary" Content="Update Now"
                                 Command="{Binding InstallUpdateCommand}"
                                 IsVisible="{Binding IsUpdateAvailable}" />
+                    </Grid>
+
+                    <!-- Download progress for a self-applied update, with pause/resume/cancel -
+                         deliberately just these three (no open-folder/remove, unlike a download
+                         row's action strip): the update asset is a throwaway staging file, not
+                         something the user manages directly. Cancelling deletes it immediately,
+                         with no confirmation - see SettingsViewModel.CancelUpdate. -->
+                    <Grid IsVisible="{Binding IsUpdateDownloading}"
+                          ColumnDefinitions="*,Auto,Auto,Auto" ColumnSpacing="{StaticResource SpaceXs}"
+                          VerticalAlignment="Center">
+                        <controls:SegmentedProgressBar Grid.Column="0"
+                                                       Value="{Binding UpdateDownloadProgressPercent}"
+                                                       IsIndeterminate="{Binding UpdateDownloadIsIndeterminate}"
+                                                       VerticalAlignment="Center" />
+                        <Button Grid.Column="1" Classes="icon"
+                                Command="{Binding PauseUpdateCommand}" IsVisible="{Binding CanPauseUpdate}"
+                                ToolTip.Tip="Pause">
+                            <Path Classes="buttonIcon" Data="{StaticResource PauseGeometry}" />
+                        </Button>
+                        <Button Grid.Column="2" Classes="icon"
+                                Command="{Binding ResumeUpdateCommand}" IsVisible="{Binding CanResumeUpdate}"
+                                ToolTip.Tip="Resume">
+                            <Path Classes="buttonIcon" Data="{StaticResource PlayGeometry}" />
+                        </Button>
+                        <Button Grid.Column="3" Classes="icon"
+                                Command="{Binding CancelUpdateCommand}"
+                                ToolTip.Tip="Cancel">
+                            <Path Classes="buttonIcon" Data="{StaticResource CloseGeometry}" />
+                        </Button>
                     </Grid>
                 </StackPanel>
             </Border>

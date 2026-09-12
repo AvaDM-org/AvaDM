@@ -27,6 +27,7 @@ public sealed partial class DownloadListViewModel : ViewModelBase, IDisposable
     private readonly DownloadSettings _settings;
     private readonly Action _navigateToSettings;
     private readonly Func<DownloadDoubleClickAction> _getDoubleClickAction;
+    private readonly Action<string> _showToast;
     private readonly DispatcherTimer _reconcileTimer;
 
     /// <summary>Column layout (order, visibility, widths) and the active sort for the downloads
@@ -92,12 +93,6 @@ public sealed partial class DownloadListViewModel : ViewModelBase, IDisposable
             RaiseDownloadsChanged();
     }
 
-    /// <summary>Transient toast/snackbar notifications from non-terminal
-    /// <see cref="AvaDM.Core.DownloadHandle.LogMessage"/> events across all rows - see
-    /// <see cref="ToastViewModel"/>. The terminal Failed-state case is handled separately, by
-    /// each row persisting its own LastError instead.</summary>
-    public ObservableCollection<ToastViewModel> Toasts { get; } = new();
-
     [ObservableProperty]
     private string _searchText = string.Empty;
 
@@ -147,12 +142,14 @@ public sealed partial class DownloadListViewModel : ViewModelBase, IDisposable
         DownloadSettings settings,
         UiPreferencesRepository uiPreferences,
         Action navigateToSettings,
-        Func<DownloadDoubleClickAction> getDoubleClickAction)
+        Func<DownloadDoubleClickAction> getDoubleClickAction,
+        Action<string> showToast)
     {
         _downloadManager = downloadManager;
         _settings = settings;
         _navigateToSettings = navigateToSettings;
         _getDoubleClickAction = getDoubleClickAction;
+        _showToast = showToast;
 
         Columns = new DownloadColumnsViewModel(uiPreferences);
         Columns.SortChanged += (_, _) => ApplyFilter();
@@ -245,18 +242,6 @@ public sealed partial class DownloadListViewModel : ViewModelBase, IDisposable
 
     private void OnAddDownloadCancelled() => ActiveAddDownload = null;
 
-    /// <summary>Public so callers outside this view model - currently just
-    /// <see cref="App.OnFrameworkInitializationCompleted"/>, notifying that a second launch was
-    /// redirected here - can post a toast without duplicating <see cref="ToastViewModel"/>'s
-    /// wiring.</summary>
-    public void ShowToast(string message) => Toasts.Add(new ToastViewModel(message, RemoveToast));
-
-    private void RemoveToast(ToastViewModel toast)
-    {
-        toast.Dispose();
-        Toasts.Remove(toast);
-    }
-
     private void RequestRemove(DownloadRowViewModel row) =>
         ActiveRemoveConfirmation = new RemoveConfirmationViewModel(
             _downloadManager,
@@ -328,7 +313,7 @@ public sealed partial class DownloadListViewModel : ViewModelBase, IDisposable
         }
 
         var row = new DownloadRowViewModel(
-            _downloadManager, Columns, record, handle, RequestRemove, RequestContextRemove, RequestCancel, ShowToast, _getDoubleClickAction);
+            _downloadManager, Columns, record, handle, RequestRemove, RequestContextRemove, RequestCancel, _showToast, _getDoubleClickAction);
         _allRows.Add(row);
         TrackRow(row);
         ApplyFilter();
@@ -393,7 +378,7 @@ public sealed partial class DownloadListViewModel : ViewModelBase, IDisposable
                         RequestRemove,
                         RequestContextRemove,
                         RequestCancel,
-                        ShowToast,
+                        _showToast,
                         _getDoubleClickAction);
                     _allRows.Add(newRow);
                     TrackRow(newRow);

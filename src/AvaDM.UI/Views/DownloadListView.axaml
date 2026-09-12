@@ -243,34 +243,5 @@
             </Border>
         </Border>
 
-        <ItemsControl ItemsSource="{Binding Toasts}"
-                      HorizontalAlignment="Right"
-                      VerticalAlignment="Bottom"
-                      Margin="{StaticResource PanelPadding}">
-            <ItemsControl.ItemsPanel>
-                <ItemsPanelTemplate>
-                    <StackPanel Spacing="{StaticResource SpaceSm}" />
-                </ItemsPanelTemplate>
-            </ItemsControl.ItemsPanel>
-            <ItemsControl.ItemTemplate>
-                <DataTemplate x:DataType="vm:ToastViewModel">
-                    <Border Classes="toast">
-                        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="{StaticResource SpaceSm}">
-                            <TextBlock Grid.Column="0" Text="{Binding Message}"
-                                       Foreground="{DynamicResource TextPrimaryBrush}"
-                                       FontSize="{StaticResource BodyMdFontSize}"
-                                       TextWrapping="Wrap"
-                                       MaxWidth="320"
-                                       VerticalAlignment="Center" />
-                            <Button Grid.Column="1" Classes="icon"
-                                    Command="{Binding DismissCommand}"
-                                    ToolTip.Tip="Dismiss">
-                                <Path Classes="buttonIcon" Data="{StaticResource CloseGeometry}" />
-                            </Button>
-                        </Grid>
-                    </Border>
-                </DataTemplate>
-            </ItemsControl.ItemTemplate>
-        </ItemsControl>
     </Panel>
 </UserControl>

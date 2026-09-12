@@ -20,7 +20,11 @@ public sealed partial class SettingsViewModel : ViewModelBase
     private readonly UiPreferencesRepository _uiPreferences;
     private readonly Action _navigateToDownloads;
     private readonly UpdateService _updateService;
+    private readonly Action<UpdateCheckResult> _onUpdateAvailable;
     private readonly Action _requestAppExit;
+
+    private CancellationTokenSource? _updateCts;
+    private PauseTokenSource? _updatePauseTokenSource;
 
     [ObservableProperty]
     private string _downloadDirectory;
@@ -109,6 +113,45 @@ public sealed partial class SettingsViewModel : ViewModelBase
     [NotifyPropertyChangedFor(nameof(HasUpdateStatusMessage))]
     private string? _updateStatusMessage;
 
+    /// <summary>True for the whole span of <see cref="InstallUpdate"/> - drives the update
+    /// progress bar and its pause/resume/cancel row in the view. Unlike <see cref="IsCheckingForUpdates"/>
+    /// (which also covers the initial "Check for Updates" click), this is specifically the
+    /// download-and-apply phase.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CanCancelUpdate))]
+    [NotifyCanExecuteChangedFor(nameof(CancelUpdateCommand))]
+    private bool _isUpdateDownloading;
+
+    /// <summary>True only while the byte-level asset download is in flight - as opposed to the
+    /// verify/install/restart phases that follow it, which can't meaningfully be paused. Toggled
+    /// off the coarse phase text from <see cref="UpdateService.ApplyUpdateAsync"/>'s
+    /// <c>IProgress&lt;string&gt;</c> rather than a separate state machine.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CanPauseUpdate))]
+    [NotifyPropertyChangedFor(nameof(CanResumeUpdate))]
+    [NotifyCanExecuteChangedFor(nameof(PauseUpdateCommand))]
+    [NotifyCanExecuteChangedFor(nameof(ResumeUpdateCommand))]
+    private bool _isUpdateDownloadActive;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CanPauseUpdate))]
+    [NotifyPropertyChangedFor(nameof(CanResumeUpdate))]
+    [NotifyCanExecuteChangedFor(nameof(PauseUpdateCommand))]
+    [NotifyCanExecuteChangedFor(nameof(ResumeUpdateCommand))]
+    private bool _isUpdatePaused;
+
+    [ObservableProperty]
+    private double _updateDownloadProgressPercent;
+
+    [ObservableProperty]
+    private bool _updateDownloadIsIndeterminate;
+
+    public bool CanPauseUpdate => IsUpdateDownloadActive && !IsUpdatePaused;
+
+    public bool CanResumeUpdate => IsUpdateDownloadActive && IsUpdatePaused;
+
+    public bool CanCancelUpdate => IsUpdateDownloading;
+
     /// <summary>Null until the first check completes. <see cref="IsUpdateAvailable"/> and
     /// <see cref="AvailableUpdateVersion"/> are derived from this rather than being separate
     /// observable fields, so there's one source of truth for "is there an update" that both the
@@ -131,12 +174,14 @@ public sealed partial class SettingsViewModel : ViewModelBase
         DownloadDoubleClickAction doubleClickAction,
         bool autoUpdateEnabled,
         UpdateService updateService,
+        Action<UpdateCheckResult> onUpdateAvailable,
         Action requestAppExit)
     {
         _settings = settings;
         _uiPreferences = uiPreferences;
         _navigateToDownloads = navigateToDownloads;
         _updateService = updateService;
+        _onUpdateAvailable = onUpdateAvailable;
         _requestAppExit = requestAppExit;
 
         _downloadDirectory = settings.DefaultDownloadDirectory;
@@ -320,6 +365,12 @@ public sealed partial class SettingsViewModel : ViewModelBase
             UpdateStatusMessage = result.IsAvailable
                 ? $"AvaDM {result.LatestVersion} is available."
                 : silent ? null : "You're up to date.";
+
+            // Only the silent (startup) check notifies via toast - a manual, user-initiated check
+            // already has the user looking at this page, where the same information is already
+            // shown inline above.
+            if (silent && result.IsAvailable)
+                _onUpdateAvailable(result);
         }
         catch (Exception ex)
         {
@@ -347,13 +398,30 @@ public sealed partial class SettingsViewModel : ViewModelBase
             return;
 
         IsCheckingForUpdates = true;
+        IsUpdateDownloading = true;
+        UpdateDownloadProgressPercent = 0;
+        UpdateDownloadIsIndeterminate = true;
         InstallUpdateCommand.NotifyCanExecuteChanged();
         UpdateStatusMessage = "Installing update...";
 
+        _updateCts = new CancellationTokenSource();
+        _updatePauseTokenSource = new PauseTokenSource();
+
         try
         {
-            var progress = new Progress<string>(message => UpdateStatusMessage = message);
-            var result = await _updateService.ApplyUpdateAsync(update, progress);
+            var progress = new Progress<string>(message =>
+            {
+                UpdateStatusMessage = message;
+                IsUpdateDownloadActive = string.Equals(message, "Downloading update...", StringComparison.Ordinal);
+            });
+            var downloadProgress = new Progress<UpdateDownloadProgress>(p =>
+            {
+                UpdateDownloadIsIndeterminate = p.PercentComplete is null;
+                UpdateDownloadProgressPercent = p.PercentComplete ?? 0;
+            });
+
+            var result = await _updateService.ApplyUpdateAsync(
+                update, progress, downloadProgress, _updatePauseTokenSource, _updateCts.Token);
             UpdateStatusMessage = result.Message ?? (result.Succeeded ? "Update applied." : "Update failed.");
 
             if (result.Succeeded && result.ShouldExitApp)
@@ -367,11 +435,38 @@ public sealed partial class SettingsViewModel : ViewModelBase
         finally
         {
             IsCheckingForUpdates = false;
+            IsUpdateDownloading = false;
+            IsUpdateDownloadActive = false;
+            IsUpdatePaused = false;
+            _updateCts?.Dispose();
+            _updateCts = null;
+            _updatePauseTokenSource = null;
             InstallUpdateCommand.NotifyCanExecuteChanged();
         }
     }
 
     private bool CanInstallUpdate() => IsUpdateAvailable && !IsCheckingForUpdates;
+
+    [RelayCommand(CanExecute = nameof(CanPauseUpdate))]
+    private void PauseUpdate()
+    {
+        _updatePauseTokenSource?.Pause();
+        IsUpdatePaused = true;
+    }
+
+    [RelayCommand(CanExecute = nameof(CanResumeUpdate))]
+    private void ResumeUpdate()
+    {
+        _updatePauseTokenSource?.Resume();
+        IsUpdatePaused = false;
+    }
+
+    /// <summary>No confirmation, unlike a download row's Cancel - the update asset is a throwaway
+    /// staging file the user never asked to keep, so it's just deleted (see
+    /// <see cref="UpdateService"/>'s cleanup on a cancelled/failed apply) rather than prompted
+    /// over.</summary>
+    [RelayCommand(CanExecute = nameof(CanCancelUpdate))]
+    private void CancelUpdate() => _updateCts?.Cancel();
 
     [RelayCommand]
     private async Task SelectDoubleClickOpenFile()
