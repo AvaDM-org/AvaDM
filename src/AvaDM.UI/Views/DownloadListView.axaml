@@ -95,9 +95,10 @@
                         </TextBox.KeyBindings>
                         <TextBox.InnerRightContent>
                             <Button Classes="icon"
-                                    Content="&#128203;"
                                     Click="OnPasteQuickAdd"
-                                    ToolTip.Tip="Paste link from clipboard" />
+                                    ToolTip.Tip="Paste link from clipboard">
+                                <Path Classes="buttonIcon" Data="{StaticResource ClipboardGeometry}" />
+                            </Button>
                         </TextBox.InnerRightContent>
                     </TextBox>
 
