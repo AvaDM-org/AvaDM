@@ -57,6 +57,19 @@ public sealed class DownloadManager
     /// running at the same moment as a new add) can never both see a free slot and both take it,
     /// running the process over <see cref="DownloadSettings.DefaultMaxConcurrentDownloads"/>.</summary>
     private readonly SemaphoreSlim _admissionLock = new(1, 1);
+
+    /// <summary>Every handle's "fully finalized" task (persisted its terminal state, removed
+    /// itself from <see cref="_activeHandles"/>, and - for a Failed handle - decided on
+    /// auto-retry), keyed by download id. Populated synchronously in <see cref="SyncToRepository"/>
+    /// the moment a handle is registered, so it's always present the instant
+    /// <see cref="GetActiveHandle"/> can return that handle - unlike awaiting the handle's own
+    /// <see cref="DownloadHandle.Completion"/> directly, which only waits for the transfer to stop,
+    /// not for <see cref="FinalizeDownloadAsync"/> (a separate, unawaited continuation on that same
+    /// task) to actually run. A caller that cancels a stale handle and then persists a *different*
+    /// state for the same id needs to await this, not just Completion - otherwise the stale
+    /// handle's own terminal-state write can land after the caller's, silently reverting it. See
+    /// AddDownloadAsync's stale-handle-replacement step.</summary>
+    private readonly ConcurrentDictionary<Guid, Task> _pendingFinalizations = new();
     private bool _initialized;
 
     public DownloadManager(HttpClient client, DownloadSettings settings)
@@ -132,13 +145,38 @@ public sealed class DownloadManager
             if (staleHandle is not null)
             {
                 staleHandle.Cancel();
-                try
+
+                // Awaits the stale handle's *entire* finalization, not just its Completion task:
+                // Completion finishing only means the transfer stopped, not that
+                // FinalizeDownloadAsync (a separate, unawaited continuation on it) has actually
+                // written the stale handle's terminal state (Cancelled) to the repository yet.
+                // Without this, that write could land after this call's own Running/Queued write
+                // for the very same id further down, silently reverting it back to Cancelled -
+                // found via manual testing of #25, where routing every Resume through here (rather
+                // than resuming a Paused handle in place) made this race hit on every single
+                // pause-then-resume instead of only on the rarer resume-a-failed-download path.
+                if (_pendingFinalizations.TryGetValue(conflict.ExistingRecord!.Id, out var pendingFinalize))
                 {
-                    await staleHandle.Completion;
+                    try
+                    {
+                        await pendingFinalize;
+                    }
+                    catch
+                    {
+                        // FinalizeDownloadAsync already catches and logs its own exceptions; this
+                        // is just defensive in case that ever changes.
+                    }
                 }
-                catch (OperationCanceledException)
+                else
                 {
-                    // Expected: Cancel() faults Completion with this.
+                    try
+                    {
+                        await staleHandle.Completion;
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        // Expected: Cancel() faults Completion with this.
+                    }
                 }
             }
         }
@@ -297,18 +335,22 @@ public sealed class DownloadManager
         }
     }
 
-    /// <summary>Pauses however many currently-Running downloads are needed to bring the running
-    /// count back to (or under) <see cref="DownloadSettings.DefaultMaxConcurrentDownloads"/> -
-    /// the counterpart to <see cref="AdmitQueuedDownloadsAsync"/> for when the limit is *lowered*
-    /// below what's already running, which that method alone never addresses (it only ever admits
-    /// more, never backs off existing ones). A no-op if nothing is currently over the limit.
+    /// <summary>Re-queues (not merely pauses) however many currently-Running downloads are
+    /// needed to bring the running count back to (or under)
+    /// <see cref="DownloadSettings.DefaultMaxConcurrentDownloads"/> - the counterpart to
+    /// <see cref="AdmitQueuedDownloadsAsync"/> for when the limit is *lowered* below what's
+    /// already running, which that method alone never addresses (it only ever admits more, never
+    /// backs off existing ones). A no-op if nothing is currently over the limit.
     ///
-    /// When there's more to pause than room to cut, the downloads with the highest
-    /// <c>QueueOrder</c> (i.e. added or re-queued most recently) are paused first, leaving
-    /// whichever have been running the longest untouched - an arbitrary but deterministic and
-    /// stable tie-break, consistent with the FIFO ordering the queue already uses everywhere
-    /// else. Pausing (not cancelling) means every paused download can simply be resumed once the
-    /// limit allows it, same as a manual pause.</summary>
+    /// Deliberately re-queues rather than pauses: a paused download only starts again once the
+    /// user manually resumes it, whereas a download bumped by a *lowered limit* should pick back
+    /// up on its own the moment room exists again, exactly like anything else waiting its turn -
+    /// the user didn't ask for it to stop, the limit just changed.
+    ///
+    /// When there's more to bump than room to cut, the downloads with the highest
+    /// <c>QueueOrder</c> (i.e. added or re-queued most recently) go first, leaving whichever have
+    /// been running the longest untouched - an arbitrary but deterministic and stable tie-break,
+    /// consistent with the FIFO ordering the queue already uses everywhere else.</summary>
     public async Task EnforceConcurrencyLimitAsync()
     {
         await EnsureInitializedAsync();
@@ -324,13 +366,38 @@ public sealed class DownloadManager
             if (excess <= 0)
                 return;
 
-            var toPause = (await _repository.GetAllAsync())
+            var toRequeue = (await _repository.GetAllAsync())
                 .Where(r => runningHandles.ContainsKey(r.Id))
                 .OrderByDescending(r => r.QueueOrder)
-                .Take(excess);
+                .Take(excess)
+                .ToList();
 
-            foreach (var record in toPause)
-                runningHandles[record.Id].Pause();
+            foreach (var record in toRequeue)
+            {
+                var handle = runningHandles[record.Id];
+                handle.Cancel();
+
+                // Awaits the handle's full finalization, not just its Completion task - same
+                // reasoning as AddDownloadAsync's stale-handle-replacement step: without this, the
+                // handle's own terminal-state write (Cancelled) could land after this method's own
+                // Queued write below and silently revert it.
+                if (_pendingFinalizations.TryGetValue(record.Id, out var pendingFinalize))
+                {
+                    try
+                    {
+                        await pendingFinalize;
+                    }
+                    catch
+                    {
+                        // FinalizeDownloadAsync already catches and logs its own exceptions.
+                    }
+                }
+
+                // UpdateStateAsync only touches State - the real BytesDownloaded/TotalBytes the
+                // cancelled handle just persisted (via its own finalize, awaited above) stays
+                // intact, so this download resumes from exactly where it left off once re-admitted.
+                await _repository.UpdateStateAsync(record.Id, DownloadState.Queued);
+            }
         }
         finally
         {
@@ -532,6 +599,24 @@ public sealed class DownloadManager
         await AdmitQueuedDownloadsAsync();
     }
 
+    /// <summary>Holds a still-<see cref="DownloadState.Queued"/> download back from admission
+    /// until explicitly resumed - the queued equivalent of pausing a running download. No handle
+    /// exists yet, so there's nothing to call <see cref="DownloadHandle.Pause"/> on; this is a
+    /// plain state flip to <see cref="DownloadState.QueuedPaused"/>, which
+    /// <see cref="AdmitQueuedDownloadsAsync"/>'s scan simply never selects. A no-op (returns
+    /// <c>false</c>) if the row isn't currently <see cref="DownloadState.Queued"/>.</summary>
+    public async Task<bool> PauseQueuedDownloadAsync(Guid id)
+    {
+        await EnsureInitializedAsync();
+
+        var record = await _repository.GetByIdAsync(id);
+        if (record is null || record.State != DownloadState.Queued)
+            return false;
+
+        await _repository.UpdateStateAsync(id, DownloadState.QueuedPaused);
+        return true;
+    }
+
     private string ResolvePath(Uri uri, string? destinationPath) =>
         Path.GetFullPath(_downloader.ResolveDestinationPath(uri, destinationPath));
 
@@ -564,8 +649,12 @@ public sealed class DownloadManager
         };
 
         // Runs regardless of throttling and regardless of success/failure/cancellation, so the
-        // terminal state is always recorded even if the last throttled write is stale.
-        handle.Completion.ContinueWith(t =>
+        // terminal state is always recorded even if the last throttled write is stale. The
+        // ContinueWith call itself - not its completion - is what has to happen synchronously
+        // here: it hands back a Task immediately, which is stored in _pendingFinalizations before
+        // this method returns, so that dictionary entry can never race a caller looking it up via
+        // GetActiveHandle right after (see that field's doc comment).
+        var finalizeTask = handle.Completion.ContinueWith(async t =>
         {
             // Reading Exception is what marks a faulted antecedent "observed" - without it, the
             // fault sits unobserved until the GC finalizes the Task, and the runtime rethrows it
@@ -575,10 +664,16 @@ public sealed class DownloadManager
             if (t.Exception is not null)
                 handle.Log($"Download failed: {t.Exception.GetBaseException().Message}");
 
-            // FinalizeDownloadAsync catches and logs its own exceptions, so discarding the task
-            // here (rather than awaiting it) is intentional, not an oversight.
-            _ = FinalizeDownloadAsync(id, handle);
-        });
+            // FinalizeDownloadAsync catches and logs its own exceptions - it won't fault this.
+            await FinalizeDownloadAsync(id, handle);
+        }).Unwrap();
+
+        _pendingFinalizations[id] = finalizeTask;
+        _ = finalizeTask.ContinueWith(_ =>
+            // Conditional remove: don't delete a newer entry a resumed download for this same id
+            // has since installed - same reasoning as _activeHandles' own conditional remove in
+            // FinalizeDownloadAsync.
+            ((ICollection<KeyValuePair<Guid, Task>>)_pendingFinalizations).Remove(new(id, finalizeTask)));
     }
 
     private async Task FinalizeDownloadAsync(Guid id, DownloadHandle handle)
