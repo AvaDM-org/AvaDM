@@ -582,6 +582,11 @@ public sealed partial class SettingsViewModel : ViewModelBase
         _settings.DefaultAutoRetryAttempts = AutoRetryAttempts;
         _settings.DefaultMaxConcurrentDownloads = MaxConcurrentDownloads;
 
+        // A lowered limit should pause however many currently-running downloads are needed to
+        // get back under it, rather than leaving them running until they happen to finish on
+        // their own - a no-op if the limit was raised or unchanged, or if nothing is over it.
+        await _downloadManager.EnforceConcurrencyLimitAsync();
+
         // A raised limit should let already-queued downloads start right away rather than wait
         // for the next unrelated trigger (a download finishing, pausing, ...) - a no-op if the
         // limit was lowered or unchanged, or if nothing is queued.

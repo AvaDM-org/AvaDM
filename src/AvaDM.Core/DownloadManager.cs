@@ -152,57 +152,89 @@ public sealed class DownloadManager
             ? conflict.ExistingRecord!.Id
             : Guid.NewGuid();
 
-        // Only actually starts the transfer (and only then calls Downloader.StartDownload) if
-        // there's a free concurrency slot right now; otherwise the row below is persisted as
-        // Queued and AdmitQueuedDownloadsAsync starts it later once one opens up.
-        var handle = await TryStartHandleAsync(uri, resolvedPath, options);
-        var state = handle is null ? DownloadState.Queued : DownloadState.Running;
+        // Persists the row as either Running or Queued, matching whatever TryStartHandleAsync
+        // below decides. Queuing under Resume preserves BytesDownloaded/TotalBytes rather than
+        // resetting them - the .avadm footer's progress is still genuinely on disk, untouched,
+        // since nothing has actually restarted yet. Overwrite already deleted the footer earlier
+        // in this method regardless of whether the retry starts immediately or queues, so
+        // resetting to 0 there is honest either way.
+        Task PersistAsync(DownloadState state)
+        {
+            if (conflict.HasConflict && resolution is ConflictResolution.Resume or ConflictResolution.Overwrite)
+            {
+                return state == DownloadState.Queued && resolution is ConflictResolution.Resume
+                    ? _repository.UpdateStateAsync(id, state)
+                    : _repository.ResetForRestartAsync(id, state, 0);
+            }
 
-        if (conflict.HasConflict && resolution is ConflictResolution.Resume or ConflictResolution.Overwrite)
-        {
-            // Queuing (handle is null) under Resume means the .avadm footer's progress is still
-            // genuinely on disk, untouched - preserve BytesDownloaded/TotalBytes rather than
-            // flashing the row to 0 while it waits for a slot, since nothing has actually
-            // restarted yet. Overwrite already deleted the footer above regardless of whether
-            // this queues or starts immediately, so resetting to 0 there is honest either way.
-            if (handle is null && resolution is ConflictResolution.Resume)
-                await _repository.UpdateStateAsync(id, state);
-            else
-                await _repository.ResetForRestartAsync(id, state, handle?.TotalBytes ?? 0);
+            return _repository.InsertAsync(id, uri.AbsoluteUri, resolvedPath, state, 0);
         }
-        else
-        {
-            await _repository.InsertAsync(id, uri.AbsoluteUri, resolvedPath, state, handle?.TotalBytes ?? 0);
-        }
+
+        // Only actually starts the transfer (and only then calls Downloader.StartDownload) if
+        // there's a free concurrency slot right now; otherwise the row is persisted as Queued and
+        // AdmitQueuedDownloadsAsync starts it later once one opens up.
+        var handle = await TryStartHandleAsync(id, uri, resolvedPath, options, PersistAsync);
 
         if (handle is null)
-        {
             _queuedOptions[id] = options;
-        }
-        else
-        {
-            _activeHandles[id] = handle;
-            SyncToRepository(id, handle);
-        }
+        // else: TryStartHandleAsync already persisted Running, registered the handle in
+        // _activeHandles, and wired SyncToRepository, all under the same lock acquisition as the
+        // admission check itself - see that method's doc comment for why that has to be one
+        // atomic step, not several.
 
         return new AddDownloadResult(true, id, handle, null);
     }
 
     private int RunningHandleCount() => _activeHandles.Values.Count(h => h.State == DownloadState.Running);
 
-    /// <summary>Starts a transfer only if there's room under
+    /// <summary>Starts a transfer and registers it as active only if there's room under
     /// <see cref="DownloadSettings.DefaultMaxConcurrentDownloads"/> right now, returning
-    /// <c>null</c> instead of a handle when there isn't. A <see cref="DownloadState.Paused"/>
-    /// handle doesn't count against the limit - pausing frees its slot for a queued download to
-    /// start, and it only reclaims one for itself the next time it's resumed.</summary>
-    private async Task<DownloadHandle?> TryStartHandleAsync(Uri uri, string resolvedPath, DownloadOptions? options)
+    /// <c>null</c> instead of a handle when there isn't (after persisting the row as
+    /// <see cref="DownloadState.Queued"/> via <paramref name="persistAsync"/>). A
+    /// <see cref="DownloadState.Paused"/> handle doesn't count against the limit - pausing frees
+    /// its slot for a queued download to start, and it only reclaims one for itself the next time
+    /// it's resumed.
+    ///
+    /// The count-check, <paramref name="persistAsync"/> call, <see cref="Downloader.StartDownload"/>
+    /// call, and <c>_activeHandles</c> registration all happen under one <see cref="_admissionLock"/>
+    /// acquisition, in that order. Two things depend on that:
+    /// <list type="bullet">
+    /// <item>Registration used to happen afterward, back in the caller, outside the lock. That gap
+    /// let a concurrent <see cref="AdmitQueuedDownloadsAsync"/> pass (triggered by some unrelated
+    /// pause or completion elsewhere) run in between: it would count this brand-new handle as not
+    /// yet running (it wasn't in <c>_activeHandles</c> yet) and see this same download's row still
+    /// reading its old state in the repository (that write hadn't happened yet either), and admit
+    /// it a second time - starting a second <see cref="DownloadHandle"/> for the same id, both
+    /// writing the same <c>.avadm</c> file concurrently.</item>
+    /// <item><paramref name="persistAsync"/> is called for Running *before* <see cref="Downloader.StartDownload"/>,
+    /// not after. <c>StartDownload</c> returns a "hot" handle that's already transferring - for a
+    /// download that fails (or completes) near-instantly, its own terminal-state write from
+    /// <see cref="FinalizeDownloadAsync"/> could otherwise race the "just started, mark Running"
+    /// write for the exact same id, with no guarantee which one actually lands last. Persisting
+    /// Running strictly before the handle exists at all means that write always happens-before
+    /// anything the handle itself could ever write, by construction.</item>
+    /// </list>
+    /// Together, these are how a download ended up marked Completed while its actual bytes on
+    /// disk were incomplete/corrupted and un-resumable (first bullet), and separately how a
+    /// download that failed immediately could get stuck permanently showing Running (second
+    /// bullet) - both found via manual testing of #25.</summary>
+    private async Task<DownloadHandle?> TryStartHandleAsync(
+        Guid id, Uri uri, string resolvedPath, DownloadOptions? options, Func<DownloadState, Task> persistAsync)
     {
         await _admissionLock.WaitAsync();
         try
         {
-            return RunningHandleCount() >= _settings.DefaultMaxConcurrentDownloads
-                ? null
-                : _downloader.StartDownload(uri, resolvedPath, options);
+            if (RunningHandleCount() >= _settings.DefaultMaxConcurrentDownloads)
+            {
+                await persistAsync(DownloadState.Queued);
+                return null;
+            }
+
+            await persistAsync(DownloadState.Running);
+            var handle = _downloader.StartDownload(uri, resolvedPath, options);
+            _activeHandles[id] = handle;
+            SyncToRepository(id, handle);
+            return handle;
         }
         finally
         {
@@ -240,13 +272,65 @@ public sealed class DownloadManager
                 if (running >= limit)
                     break;
 
+                // Defensive: never start a second handle for an id that already has a live one.
+                // _activeHandles is the true "what's actually running right now" source of truth;
+                // the repository is a lagging mirror of it and can briefly still say Queued for a
+                // download another in-flight call just started (see TryStartHandleAsync's doc
+                // comment for the exact race this guards against).
+                if (_activeHandles.ContainsKey(record.Id))
+                    continue;
+
                 _queuedOptions.TryRemove(record.Id, out var options);
-                var handle = _downloader.StartDownload(new Uri(record.Uri), record.DestinationPath, options);
+                // Persisted before starting the (immediately "hot") handle, not after - see
+                // TryStartHandleAsync's doc comment for why a fast-failing/fast-completing
+                // download could otherwise race this write with its own terminal-state one.
                 await _repository.UpdateStateAsync(record.Id, DownloadState.Running);
+                var handle = _downloader.StartDownload(new Uri(record.Uri), record.DestinationPath, options);
                 _activeHandles[record.Id] = handle;
                 SyncToRepository(record.Id, handle);
                 running++;
             }
+        }
+        finally
+        {
+            _admissionLock.Release();
+        }
+    }
+
+    /// <summary>Pauses however many currently-Running downloads are needed to bring the running
+    /// count back to (or under) <see cref="DownloadSettings.DefaultMaxConcurrentDownloads"/> -
+    /// the counterpart to <see cref="AdmitQueuedDownloadsAsync"/> for when the limit is *lowered*
+    /// below what's already running, which that method alone never addresses (it only ever admits
+    /// more, never backs off existing ones). A no-op if nothing is currently over the limit.
+    ///
+    /// When there's more to pause than room to cut, the downloads with the highest
+    /// <c>QueueOrder</c> (i.e. added or re-queued most recently) are paused first, leaving
+    /// whichever have been running the longest untouched - an arbitrary but deterministic and
+    /// stable tie-break, consistent with the FIFO ordering the queue already uses everywhere
+    /// else. Pausing (not cancelling) means every paused download can simply be resumed once the
+    /// limit allows it, same as a manual pause.</summary>
+    public async Task EnforceConcurrencyLimitAsync()
+    {
+        await EnsureInitializedAsync();
+        await _admissionLock.WaitAsync();
+        try
+        {
+            var limit = _settings.DefaultMaxConcurrentDownloads;
+            var runningHandles = _activeHandles
+                .Where(kv => kv.Value.State == DownloadState.Running)
+                .ToDictionary(kv => kv.Key, kv => kv.Value);
+
+            var excess = runningHandles.Count - limit;
+            if (excess <= 0)
+                return;
+
+            var toPause = (await _repository.GetAllAsync())
+                .Where(r => runningHandles.ContainsKey(r.Id))
+                .OrderByDescending(r => r.QueueOrder)
+                .Take(excess);
+
+            foreach (var record in toPause)
+                runningHandles[record.Id].Pause();
         }
         finally
         {
@@ -516,15 +600,22 @@ public sealed class DownloadManager
             ((ICollection<KeyValuePair<Guid, DownloadHandle>>)_activeHandles).Remove(new(id, handle));
         }
 
-        // A terminal handle (Completed/Failed/Cancelled) always frees its slot - let the next
-        // queued download in line take it before deciding whether to auto-retry this one, so a
-        // failing download's auto-retry queues behind everything already waiting rather than
-        // cutting in front of it (it goes through AddDownloadAsync just like a manual resume,
-        // which is itself concurrency-aware).
-        _ = AdmitQueuedDownloadsAsync();
-
+        // A terminal handle (Completed/Failed/Cancelled) always frees its slot. TryAutoRetryAsync
+        // runs first, not AdmitQueuedDownloadsAsync - it goes through AddDownloadAsync just like a
+        // manual resume, which is itself concurrency-aware, so a retry that finds the slot already
+        // taken by something else still queues correctly either way. Running it first instead of
+        // firing AdmitQueuedDownloadsAsync beforehand avoids the two contending for _admissionLock
+        // on every single attempt of a fast retry loop (AdmitQueuedDownloadsAsync's own repository
+        // round trip would otherwise still be holding the lock when the retry's AddDownloadAsync
+        // tries to acquire it) - measurable added latency per attempt that made
+        // FailedDownload_AutoRetries_UpToConfiguredLimitThenStops and
+        // ResumeDownloadAsync_ManualCall_ResetsAutoRetryCounter's fixed timing budgets flaky. The
+        // trade-off: a retry can now win a just-freed slot ahead of something else already queued,
+        // rather than always queuing behind it - a minor fairness question, not a correctness one.
         if (handle.State == DownloadState.Failed)
             await TryAutoRetryAsync(id, handle);
+
+        _ = AdmitQueuedDownloadsAsync();
     }
 
     /// <summary>Automatically resumes a download that ended in <see cref="DownloadState.Failed"/>,
