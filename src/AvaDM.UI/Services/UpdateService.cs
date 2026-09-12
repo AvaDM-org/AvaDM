@@ -7,6 +7,7 @@ using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text.Json.Serialization;
+using AvaDM.Core;
 using Serilog;
 
 namespace AvaDM.UI.Services;
@@ -33,7 +34,17 @@ public sealed record UpdateApplyResult(bool Succeeded, bool ShouldExitApp, strin
 
 public sealed record GitHubReleaseAsset(
     [property: JsonPropertyName("name")] string Name,
-    [property: JsonPropertyName("browser_download_url")] string BrowserDownloadUrl);
+    [property: JsonPropertyName("browser_download_url")] string BrowserDownloadUrl,
+    [property: JsonPropertyName("size")] long Size = 0);
+
+/// <summary>Byte-level progress for the update asset download itself, as opposed to
+/// <c>IProgress&lt;string&gt;</c>'s coarse phase text ("Downloading...", "Verifying...", ...).
+/// <see cref="TotalBytes"/> is null only if neither the release asset's own size nor the
+/// response's Content-Length was available, in which case the UI shows an indeterminate bar.</summary>
+public sealed record UpdateDownloadProgress(long BytesDownloaded, long? TotalBytes)
+{
+    public double? PercentComplete => TotalBytes is > 0 ? BytesDownloaded * 100.0 / TotalBytes.Value : null;
+}
 
 internal sealed record GitHubRelease(
     [property: JsonPropertyName("tag_name")] string TagName,
@@ -111,7 +122,11 @@ public sealed class UpdateService(HttpClient httpClient)
     }
 
     public async Task<UpdateApplyResult> ApplyUpdateAsync(
-        UpdateCheckResult update, IProgress<string>? progress = null, CancellationToken ct = default)
+        UpdateCheckResult update,
+        IProgress<string>? progress = null,
+        IProgress<UpdateDownloadProgress>? downloadProgress = null,
+        PauseTokenSource? pauseTokenSource = null,
+        CancellationToken ct = default)
     {
         Log.Information(
             "Applying update {LatestVersion} via channel {Channel}, asset {Asset}",
@@ -123,7 +138,7 @@ public sealed class UpdateService(HttpClient httpClient)
             {
                 UpdateChannel.WindowsInstaller or UpdateChannel.WindowsPortable
                     or UpdateChannel.LinuxAppImage or UpdateChannel.LinuxPortable
-                    => await SelfApplyAsync(update, progress, ct),
+                    => await SelfApplyAsync(update, progress, downloadProgress, pauseTokenSource, ct),
 
                 UpdateChannel.MacOsDmg => await OpenDownloadForManualInstallAsync(
                     update,
@@ -136,6 +151,11 @@ public sealed class UpdateService(HttpClient httpClient)
                 _ => OpenReleasePage(update, "Opened the release page to download the update."),
             };
         }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            Log.Information("Update to {LatestVersion} was cancelled", update.LatestVersion);
+            return new UpdateApplyResult(false, false, "Update cancelled.");
+        }
         catch (Exception ex)
         {
             Log.Error(ex, "Update apply failed for {LatestVersion} via channel {Channel}", update.LatestVersion, update.Channel);
@@ -144,7 +164,11 @@ public sealed class UpdateService(HttpClient httpClient)
     }
 
     private async Task<UpdateApplyResult> SelfApplyAsync(
-        UpdateCheckResult update, IProgress<string>? progress, CancellationToken ct)
+        UpdateCheckResult update,
+        IProgress<string>? progress,
+        IProgress<UpdateDownloadProgress>? downloadProgress,
+        PauseTokenSource? pauseTokenSource,
+        CancellationToken ct)
     {
         if (update.Asset is null)
             return new UpdateApplyResult(false, false, "No matching download was published for this build.");
@@ -184,7 +208,8 @@ public sealed class UpdateService(HttpClient httpClient)
         try
         {
             progress?.Report("Downloading update...");
-            await DownloadFileAsync(update.Asset.BrowserDownloadUrl, downloadPath, ct);
+            await DownloadFileAsync(
+                update.Asset.BrowserDownloadUrl, downloadPath, update.Asset.Size, downloadProgress, pauseTokenSource, ct);
 
             progress?.Report("Verifying download...");
             await VerifyChecksumAsync(update, downloadPath, ct);
@@ -403,7 +428,7 @@ public sealed class UpdateService(HttpClient httpClient)
         }
 
         var downloadPath = Path.Combine(Path.GetTempPath(), update.Asset.Name);
-        await DownloadFileAsync(update.Asset.BrowserDownloadUrl, downloadPath, ct);
+        await DownloadFileAsync(update.Asset.BrowserDownloadUrl, downloadPath, update.Asset.Size, null, null, ct);
         await VerifyChecksumAsync(update, downloadPath, ct);
 
         OpenTarget(downloadPath);
@@ -419,13 +444,41 @@ public sealed class UpdateService(HttpClient httpClient)
     private static void OpenTarget(string target) =>
         Process.Start(new ProcessStartInfo(target) { UseShellExecute = true });
 
-    private async Task DownloadFileAsync(string url, string destinationPath, CancellationToken ct)
+    /// <summary>Streams the asset to disk in fixed-size chunks (rather than one <c>CopyToAsync</c>
+    /// call) so byte-level progress can be reported and, between chunks, the transfer can wait on
+    /// <paramref name="pauseTokenSource"/> - same cooperative-pause pattern <c>Downloader</c> uses
+    /// per chunk task. <paramref name="knownSize"/> (the release asset's own reported size) backs
+    /// the total when the response carries no Content-Length; if neither is available, progress
+    /// reports a null total and the UI falls back to an indeterminate bar.</summary>
+    private async Task DownloadFileAsync(
+        string url,
+        string destinationPath,
+        long knownSize,
+        IProgress<UpdateDownloadProgress>? downloadProgress,
+        PauseTokenSource? pauseTokenSource,
+        CancellationToken ct)
     {
         using var response = await httpClient.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, ct);
         response.EnsureSuccessStatusCode();
+
+        var totalBytes = response.Content.Headers.ContentLength ?? (knownSize > 0 ? knownSize : null);
         await using var httpStream = await response.Content.ReadAsStreamAsync(ct);
         await using var fileStream = File.Create(destinationPath);
-        await httpStream.CopyToAsync(fileStream, ct);
+
+        var buffer = new byte[81920];
+        long bytesDownloaded = 0;
+        downloadProgress?.Report(new UpdateDownloadProgress(bytesDownloaded, totalBytes));
+
+        int read;
+        while ((read = await httpStream.ReadAsync(buffer, ct)) > 0)
+        {
+            if (pauseTokenSource is not null)
+                await pauseTokenSource.WaitWhilePausedAsync(ct);
+
+            await fileStream.WriteAsync(buffer.AsMemory(0, read), ct);
+            bytesDownloaded += read;
+            downloadProgress?.Report(new UpdateDownloadProgress(bytesDownloaded, totalBytes));
+        }
     }
 
     /// <summary>Best-effort: a release published before SHA256SUMS.txt existed (or one missing a
