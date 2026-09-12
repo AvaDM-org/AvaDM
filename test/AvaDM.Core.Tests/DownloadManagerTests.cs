@@ -475,6 +475,93 @@ public sealed class DownloadManagerTests : IDisposable
     }
 
     [Fact]
+    public async Task EnforceConcurrencyLimitAsync_LimitLoweredBelowRunningCount_PausesExcess()
+    {
+        var payload = CreatePayload(64 * 1024);
+        await using var serverA = await LocalHttpServer.StartAsync(payload, holdBody: true);
+        await using var serverB = await LocalHttpServer.StartAsync(payload, holdBody: true);
+        using var client = CreateHttpClient();
+        var settings = new DownloadSettings
+        {
+            RepositoryPath = DatabasePath,
+            DefaultDownloadDirectory = _tempDirectory,
+            DefaultMaxRetryAttempts = 1,
+            DefaultRetryBaseDelay = TimeSpan.Zero,
+            DefaultInactivityTimeout = TimeSpan.FromSeconds(5),
+            DefaultMaxConcurrentDownloads = 2,
+        };
+        var manager = new DownloadManager(client, settings);
+
+        var a = await manager.AddDownloadAsync(serverA.Uri, Path.Combine(_tempDirectory, "a.bin"));
+        var b = await manager.AddDownloadAsync(serverB.Uri, Path.Combine(_tempDirectory, "b.bin"));
+        Assert.NotNull(a.Handle);
+        Assert.NotNull(b.Handle);
+        await serverA.GetHeadersSent;
+        await serverB.GetHeadersSent;
+
+        settings.DefaultMaxConcurrentDownloads = 1;
+        await manager.EnforceConcurrencyLimitAsync();
+
+        var aHandle = manager.GetActiveHandle(a.Id!.Value)!;
+        var bHandle = manager.GetActiveHandle(b.Id!.Value)!;
+        var states = new[] { aHandle.State, bHandle.State };
+        Assert.Equal(1, states.Count(s => s == DownloadState.Running));
+        Assert.Equal(1, states.Count(s => s == DownloadState.Paused));
+
+        // B has the higher QueueOrder (added after A), so it's the one paused first.
+        Assert.Equal(DownloadState.Running, aHandle.State);
+        Assert.Equal(DownloadState.Paused, bHandle.State);
+
+        var cleanupA = await manager.CancelDownloadAsync(a.Id!.Value);
+        Assert.True(cleanupA.Success);
+        var cleanupB = await manager.CancelDownloadAsync(b.Id!.Value);
+        Assert.True(cleanupB.Success);
+    }
+
+    /// <summary>Regression test for a data-corruption bug found in manual testing of #25: two
+    /// live handles ending up registered for the same download id, both writing the same .avadm
+    /// file, eventually leaving the record marked Completed while its actual bytes on disk were
+    /// incomplete/corrupted (and un-resumable, since a Completed record can't be resumed).
+    /// AdmitQueuedDownloadsAsync used to trust the repository's Queued/not-Queued state blindly;
+    /// it now skips any record that already has a live handle in _activeHandles regardless of
+    /// what the (necessarily lagging) repository currently says - see TryStartHandleAsync's doc
+    /// comment for the exact timing race this simulates directly instead of trying to induce.</summary>
+    [Fact]
+    public async Task AdmitQueuedDownloadsAsync_RecordAlreadyHasLiveHandle_DoesNotStartASecondOne()
+    {
+        var payload = CreatePayload(64 * 1024);
+        await using var serverA = await LocalHttpServer.StartAsync(payload, holdBody: true);
+        await using var serverB = await LocalHttpServer.StartAsync(payload, holdBody: true);
+        using var client = CreateHttpClient();
+        var manager = CreateManager(client, maxConcurrentDownloads: 2);
+
+        var a = await manager.AddDownloadAsync(serverA.Uri, Path.Combine(_tempDirectory, "a.bin"));
+        var b = await manager.AddDownloadAsync(serverB.Uri, Path.Combine(_tempDirectory, "b.bin"));
+        Assert.NotNull(a.Handle);
+        Assert.NotNull(b.Handle);
+        await serverA.GetHeadersSent;
+        await serverB.GetHeadersSent;
+
+        b.Handle!.Pause(); // frees B's slot in RunningHandleCount, but its live handle still exists
+
+        // Simulate the repository still (or again) saying Queued for a download that already has
+        // a live handle - exactly the state TryStartHandleAsync's widened lock now prevents from
+        // being observed mid-registration, reproduced directly here instead of via timing.
+        var repository = new DownloadRepository(DatabasePath);
+        await repository.UpdateStateAsync(b.Id!.Value, DownloadState.Queued);
+
+        await manager.AdmitQueuedDownloadsAsync();
+
+        Assert.Same(b.Handle, manager.GetActiveHandle(b.Id!.Value)); // no duplicate handle started
+        Assert.Equal(DownloadState.Paused, manager.GetActiveHandle(b.Id!.Value)!.State); // untouched
+
+        var cleanupA = await manager.CancelDownloadAsync(a.Id!.Value);
+        Assert.True(cleanupA.Success);
+        var cleanupB = await manager.CancelDownloadAsync(b.Id!.Value);
+        Assert.True(cleanupB.Success);
+    }
+
+    [Fact]
     public async Task MoveQueuedDownloadUpAsync_ChangesAdmissionOrder()
     {
         var payload = CreatePayload(64 * 1024);
