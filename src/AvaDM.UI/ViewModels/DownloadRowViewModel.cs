@@ -503,16 +503,17 @@ public sealed partial class DownloadRowViewModel : ViewModelBase
     [RelayCommand(CanExecute = nameof(CanResume))]
     private async Task Resume()
     {
-        if (_handle is not null && State == DownloadState.Paused)
-        {
-            _handle.Resume();
-            return;
-        }
-
-        // Interrupted (no live handle yet) or Failed (a stale handle from the failed attempt,
-        // which Resume() on the handle itself can't restart - only a Paused handle can). Either
-        // way, re-add it, which falls through to Downloader's .avadm-footer resume logic and
-        // picks up from whatever was already written to disk instead of starting over.
+        // Deliberately never calls _handle.Resume() directly, even for a Paused handle that
+        // could technically just be un-paused in place: pausing frees this download's
+        // concurrency slot for a queued download to start (see #25's design), so resuming has to
+        // compete for a slot again through DownloadManager's admission gate rather than resuming
+        // unconditionally - otherwise a paused-then-resumed download and whatever queued download
+        // took its freed slot end up running together, over the configured limit.
+        //
+        // Interrupted (no live handle) or Failed (a stale handle from the failed attempt, which
+        // can't itself be un-paused) go through the exact same path. Either way, re-adding it
+        // falls through to Downloader's .avadm-footer resume logic and picks up from whatever was
+        // already written to disk instead of starting over.
         if (_handle is not null)
             Detach();
         LastError = null;
@@ -520,6 +521,8 @@ public sealed partial class DownloadRowViewModel : ViewModelBase
         var result = await _downloadManager.ResumeDownloadAsync(Id);
         if (result is { Success: true, Handle: not null })
             AttachHandle(result.Handle);
+        else if (result.Success)
+            State = DownloadState.Queued; // admission gate had no free slot - queued instead
         else
             LastError = result.Error ?? "Resume failed.";
     }
