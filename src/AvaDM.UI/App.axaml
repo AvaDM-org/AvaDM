@@ -24,6 +24,8 @@
             <ResourceDictionary.MergedDictionaries>
                 <!-- Spacing/radius/typography tokens - constant across both palettes. -->
                 <ResourceInclude Source="/Themes/Metrics.axaml" />
+                <!-- Icon geometries (Assets/svg/*.svg) shared by Path.buttonIcon everywhere. -->
+                <ResourceInclude Source="/Controls/Icons.axaml" />
             </ResourceDictionary.MergedDictionaries>
         </ResourceDictionary>
     </Application.Resources>

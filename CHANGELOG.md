@@ -9,6 +9,18 @@ Each released version below has a matching `vX.Y.Z` git tag. `.github/workflows/
 the section for the tag it is building and uses it as the GitHub Release notes, so **a release will
 fail fast if its version has no section here**. Add the entry before pushing the tag.
 
+## [2.0.1] - Unreleased
+
+### Changed
+
+- **Downloads-page and Add-Download icons now use a bundled svg icon set instead of OS/emoji
+  glyphs.** ([#19](https://github.com/AvaDM-org/AvaDM/issues/19))
+  - Pause, resume, cancel, open-folder, and remove in each download row; advanced-add, quick-add
+  start, quick-add clipboard-paste, bulk-remove, and settings in the toolbar; the toast dismiss
+  button; and the Add Download advanced-options disclosure indicator are now drawn from
+  `Assets/svg/*.svg`-sourced vector icons instead of plain-text Unicode glyphs, which rendered
+  inconsistently (or not at all) depending on the OS and installed fonts.
+
 ## [2.0.0] - 2026-09-03
 
 The Downloads page has been rebuilt as a file-explorer-style table — a large enough change to
