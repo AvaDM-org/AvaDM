@@ -82,10 +82,10 @@
 
                     <Button Grid.Column="1"
                             Classes="icon"
-                            Content="&#65291;"
-                            FontSize="{StaticResource HeadingSmFontSize}"
                             Command="{Binding AddDownloadCommand}"
-                            ToolTip.Tip="Add download (advanced)" />
+                            ToolTip.Tip="Add download (advanced)">
+                        <Path Classes="buttonIcon" Width="18" Height="18" Data="{StaticResource PlusGeometry}" />
+                    </Button>
 
                     <TextBox Grid.Column="2"
                              Text="{Binding QuickAddText, Mode=TwoWay}"
@@ -103,25 +103,25 @@
 
                     <Button Grid.Column="3"
                             Classes="icon"
-                            Content="&#9654;"
-                            FontSize="{StaticResource HeadingSmFontSize}"
                             Command="{Binding QuickAddCommand}"
-                            ToolTip.Tip="Start download" />
+                            ToolTip.Tip="Start download">
+                        <Path Classes="buttonIcon" Width="18" Height="18" Data="{StaticResource PlayGeometry}" />
+                    </Button>
 
                     <Button Grid.Column="4"
                             Classes="icon"
-                            Content="&#128465;"
-                            FontSize="{StaticResource HeadingSmFontSize}"
                             IsVisible="{Binding HasSelection}"
                             Command="{Binding BulkRemoveCommand}"
-                            ToolTip.Tip="Remove selected downloads" />
+                            ToolTip.Tip="Remove selected downloads">
+                        <Path Classes="buttonIcon" Width="18" Height="18" Data="{StaticResource DeleteGeometry}" />
+                    </Button>
 
                     <Button Grid.Column="5"
                             Classes="icon"
-                            Content="&#9881;"
-                            FontSize="{StaticResource HeadingSmFontSize}"
                             Command="{Binding OpenSettingsCommand}"
-                            ToolTip.Tip="Settings" />
+                            ToolTip.Tip="Settings">
+                        <Path Classes="buttonIcon" Width="18" Height="18" Data="{StaticResource SettingGeometry}" />
+                    </Button>
                 </Grid>
             </Border>
 
@@ -261,9 +261,11 @@
                                        TextWrapping="Wrap"
                                        MaxWidth="320"
                                        VerticalAlignment="Center" />
-                            <Button Grid.Column="1" Classes="icon" Content="&#10005;"
+                            <Button Grid.Column="1" Classes="icon"
                                     Command="{Binding DismissCommand}"
-                                    ToolTip.Tip="Dismiss" />
+                                    ToolTip.Tip="Dismiss">
+                                <Path Classes="buttonIcon" Data="{StaticResource CloseGeometry}" />
+                            </Button>
                         </Grid>
                     </Border>
                 </DataTemplate>
