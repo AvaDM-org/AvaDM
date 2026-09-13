@@ -27,11 +27,16 @@ public sealed partial class SettingsViewModel : ViewModelBase
     private CancellationTokenSource? _updateCts;
     private PauseTokenSource? _updatePauseTokenSource;
 
+    /// <summary>Factory defaults, used only to reset a numeric field that's been cleared to blank
+    /// (see the On*Changed handlers below) - a fresh instance rather than duplicated literals, so
+    /// they can't drift from <see cref="DownloadSettings"/>'s own initializers.</summary>
+    private static readonly DownloadSettings s_factoryDefaults = new();
+
     [ObservableProperty]
     private string _downloadDirectory;
 
     [ObservableProperty]
-    private int _chunkCount;
+    private int? _chunkCount;
 
     [ObservableProperty]
     private long? _speedLimitBytesPerSecond;
@@ -40,7 +45,7 @@ public sealed partial class SettingsViewModel : ViewModelBase
     private string? _repositoryPathInput;
 
     [ObservableProperty]
-    private int _maxRetryAttempts;
+    private int? _maxRetryAttempts;
 
     [ObservableProperty]
     private string _retryBaseDelaySecondsInput;
@@ -49,10 +54,10 @@ public sealed partial class SettingsViewModel : ViewModelBase
     private string _inactivityTimeoutSecondsInput;
 
     [ObservableProperty]
-    private int _autoRetryAttempts;
+    private int? _autoRetryAttempts;
 
     [ObservableProperty]
-    private int _maxConcurrentDownloads;
+    private int? _maxConcurrentDownloads;
 
     /// <summary>Whether DownloadManager automatically resumes everything left "Interrupted" (see
     /// <see cref="AvaDM.Core.DownloadSettings.AutoResumeDownloadsOnStartup"/>) the next time the
@@ -238,6 +243,34 @@ public sealed partial class SettingsViewModel : ViewModelBase
     {
         UpdateAvailabilityChanged?.Invoke(this, EventArgs.Empty);
         InstallUpdateCommand.NotifyCanExecuteChanged();
+    }
+
+    // NumericUpDown.Value is nullable (it goes null while the box is blank, e.g. the user
+    // selected-all-and-deleted mid-edit) - these four settings used to be non-nullable int, so
+    // that null failed to bind and Avalonia rendered the raw InvalidCastException inline. Rather
+    // than surface an error for a still-in-progress edit, just snap back to the factory default.
+    partial void OnChunkCountChanged(int? value)
+    {
+        if (value is null)
+            ChunkCount = s_factoryDefaults.DefaultChunkCount;
+    }
+
+    partial void OnMaxRetryAttemptsChanged(int? value)
+    {
+        if (value is null)
+            MaxRetryAttempts = s_factoryDefaults.DefaultMaxRetryAttempts;
+    }
+
+    partial void OnAutoRetryAttemptsChanged(int? value)
+    {
+        if (value is null)
+            AutoRetryAttempts = s_factoryDefaults.DefaultAutoRetryAttempts;
+    }
+
+    partial void OnMaxConcurrentDownloadsChanged(int? value)
+    {
+        if (value is null)
+            MaxConcurrentDownloads = s_factoryDefaults.DefaultMaxConcurrentDownloads;
     }
 
     public string ResolvedRepositoryPathHint => _settings.GetResolvedRepositoryPath();
@@ -571,16 +604,16 @@ public sealed partial class SettingsViewModel : ViewModelBase
         }
 
         _settings.DefaultDownloadDirectory = DownloadDirectory.Trim();
-        _settings.DefaultChunkCount = ChunkCount;
+        _settings.DefaultChunkCount = ChunkCount ?? s_factoryDefaults.DefaultChunkCount;
         _settings.DefaultSpeedLimitBytesPerSecond = SpeedLimitBytesPerSecond;
         _settings.RepositoryPath = string.IsNullOrWhiteSpace(RepositoryPathInput)
             ? null
             : RepositoryPathInput.Trim();
-        _settings.DefaultMaxRetryAttempts = MaxRetryAttempts;
+        _settings.DefaultMaxRetryAttempts = MaxRetryAttempts ?? s_factoryDefaults.DefaultMaxRetryAttempts;
         _settings.DefaultRetryBaseDelay = TimeSpan.FromSeconds(retryBaseDelaySeconds);
         _settings.DefaultInactivityTimeout = TimeSpan.FromSeconds(inactivityTimeoutSeconds);
-        _settings.DefaultAutoRetryAttempts = AutoRetryAttempts;
-        _settings.DefaultMaxConcurrentDownloads = MaxConcurrentDownloads;
+        _settings.DefaultAutoRetryAttempts = AutoRetryAttempts ?? s_factoryDefaults.DefaultAutoRetryAttempts;
+        _settings.DefaultMaxConcurrentDownloads = MaxConcurrentDownloads ?? s_factoryDefaults.DefaultMaxConcurrentDownloads;
 
         // A lowered limit should re-queue however many currently-running downloads are needed to
         // get back under it - so they pick back up on their own once room exists again, rather
