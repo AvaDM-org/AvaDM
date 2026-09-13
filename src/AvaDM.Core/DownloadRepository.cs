@@ -20,7 +20,8 @@ public sealed record DownloadRecord(
     long BytesDownloaded,
     DateTime CreatedAt,
     DateTime? LastModifiedAt,
-    int QueueOrder);
+    int QueueOrder,
+    DateTime? ScheduledStartAtUtc);
 
 public sealed record ConflictCheckResult(bool HasConflict, DownloadRecord? ExistingRecord);
 
@@ -65,6 +66,7 @@ public sealed class DownloadRepository(string dbPath)
             cancellationToken: ct);
         await connection.ExecuteAsync(command);
         await MigrateQueueOrderColumnAsync(connection, ct);
+        await MigrateScheduledStartAtUtcColumnAsync(connection, ct);
     }
 
     /// <summary>Adds the <c>QueueOrder</c> column to a database created before the download queue
@@ -85,6 +87,22 @@ public sealed class DownloadRepository(string dbPath)
                 SELECT COUNT(*) FROM Downloads AS earlier WHERE earlier.CreatedAt <= Downloads.CreatedAt
             );
             """,
+            cancellationToken: ct));
+    }
+
+    /// <summary>Adds the <c>ScheduledStartAtUtc</c> column to a database created before the
+    /// scheduled-downloads feature existed, following <see cref="MigrateQueueOrderColumnAsync"/>'s
+    /// exact pattern. Nullable and left <c>NULL</c> for every existing row - only a
+    /// <see cref="DownloadState.Scheduled"/> row ever has a value.</summary>
+    private static async Task MigrateScheduledStartAtUtcColumnAsync(SqliteConnection connection, CancellationToken ct)
+    {
+        var columns = await connection.QueryAsync<string>(
+            new CommandDefinition("SELECT name FROM pragma_table_info('Downloads')", cancellationToken: ct));
+        if (columns.Contains("ScheduledStartAtUtc"))
+            return;
+
+        await connection.ExecuteAsync(new CommandDefinition(
+            "ALTER TABLE Downloads ADD COLUMN ScheduledStartAtUtc TEXT",
             cancellationToken: ct));
     }
 
@@ -124,7 +142,84 @@ public sealed class DownloadRepository(string dbPath)
                 CreatedAt = createdAt.ToString("O"),
             });
 
-        return new DownloadRecord(id, uri, destinationPath, state, totalBytes, 0, createdAt, null, queueOrder);
+        return new DownloadRecord(id, uri, destinationPath, state, totalBytes, 0, createdAt, null, queueOrder, null);
+    }
+
+    /// <summary>Inserts a new <see cref="DownloadState.Scheduled"/> row. Unlike
+    /// <see cref="InsertAsync"/>, <c>QueueOrder</c> is left at its column default (0) rather than
+    /// assigned the next position - a scheduled item shouldn't occupy or compete for a queue slot
+    /// until it's actually due (see <see cref="PromoteScheduledToQueuedAsync"/>, which assigns the
+    /// real position at that point instead).</summary>
+    public async Task<DownloadRecord> InsertScheduledAsync(Guid id, string uri, string destinationPath, DateTime scheduledStartAtUtc)
+    {
+        var createdAt = DateTime.UtcNow;
+        using var connection = OpenConnection();
+        await connection.ExecuteAsync(
+            """
+            INSERT INTO Downloads (Id, Uri, DestinationPath, State, TotalBytes, BytesDownloaded, CreatedAt, LastModifiedAt, QueueOrder, ScheduledStartAtUtc)
+            VALUES (@Id, @Uri, @DestinationPath, @State, 0, 0, @CreatedAt, NULL, 0, @ScheduledStartAtUtc)
+            """,
+            new
+            {
+                Id = id.ToString(),
+                Uri = uri,
+                DestinationPath = destinationPath,
+                State = (int)DownloadState.Scheduled,
+                CreatedAt = createdAt.ToString("O"),
+                ScheduledStartAtUtc = scheduledStartAtUtc.ToString("O"),
+            });
+
+        return new DownloadRecord(id, uri, destinationPath, DownloadState.Scheduled, 0, 0, createdAt, null, 0, scheduledStartAtUtc);
+    }
+
+    /// <summary>The due-time transition for a <see cref="DownloadState.Scheduled"/> row: flips it
+    /// to <see cref="DownloadState.Queued"/> and, in the same statement, assigns it a fresh
+    /// <c>QueueOrder</c> (one past the current maximum, same subquery <see cref="InsertAsync"/>
+    /// uses) - so a schedule created long ago doesn't jump the line just because it was left at
+    /// <c>QueueOrder</c> 0 the whole time it waited; it joins the back of the queue at the moment
+    /// it actually becomes due, exactly like a brand-new add would. <c>ScheduledStartAtUtc</c> is
+    /// left in place (harmless once the row is no longer <see cref="DownloadState.Scheduled"/>,
+    /// and lets a caller still see when it was originally due).</summary>
+    public async Task PromoteScheduledToQueuedAsync(Guid id)
+    {
+        using var connection = OpenConnection();
+        await connection.ExecuteAsync(
+            """
+            UPDATE Downloads SET State = @State, QueueOrder = (SELECT COALESCE(MAX(QueueOrder), 0) + 1 FROM Downloads), LastModifiedAt = @LastModifiedAt
+            WHERE Id = @Id
+            """,
+            new
+            {
+                Id = id.ToString(),
+                State = (int)DownloadState.Queued,
+                LastModifiedAt = DateTime.UtcNow.ToString("O"),
+            });
+    }
+
+    /// <summary>Re-arms an existing row as a fresh <see cref="DownloadState.Scheduled"/> row -
+    /// the schedule counterpart to <see cref="ResetForRestartAsync"/>, used when
+    /// <see cref="DownloadManager.ScheduleDownloadAsync"/> resolves a conflict via Resume or
+    /// Overwrite against an existing (Uri, DestinationPath) row. Same <paramref name="id"/> and
+    /// <c>CreatedAt</c> as before; size/progress reset to 0 and <c>QueueOrder</c> left untouched
+    /// (unused while <see cref="DownloadState.Scheduled"/>, and reassigned by
+    /// <see cref="PromoteScheduledToQueuedAsync"/> once due regardless of its current value).</summary>
+    public async Task<DownloadRecord> ResetForScheduleAsync(Guid id, DateTime scheduledStartAtUtc)
+    {
+        using var connection = OpenConnection();
+        var lastModifiedAt = DateTime.UtcNow;
+        await connection.ExecuteAsync(
+            "UPDATE Downloads SET State = @State, TotalBytes = 0, BytesDownloaded = 0, LastModifiedAt = @LastModifiedAt, ScheduledStartAtUtc = @ScheduledStartAtUtc WHERE Id = @Id",
+            new
+            {
+                Id = id.ToString(),
+                State = (int)DownloadState.Scheduled,
+                LastModifiedAt = lastModifiedAt.ToString("O"),
+                ScheduledStartAtUtc = scheduledStartAtUtc.ToString("O"),
+            });
+
+        var row = await GetByIdAsync(id)
+            ?? throw new InvalidOperationException($"ResetForScheduleAsync: no row found for id {id} - caller must pass the id of an existing record.");
+        return row;
     }
 
     /// <summary>Re-arms an existing row for a resume/overwrite restart: same <paramref name="id"/>,
@@ -134,13 +229,17 @@ public sealed class DownloadRepository(string dbPath)
     /// <see cref="DownloadManager.AddDownloadAsync"/> resolves a conflict via Resume or Overwrite,
     /// since the conflicting row (same Uri + DestinationPath) is still present and a second
     /// INSERT would trip the UNIQUE constraint - and would also hand back a new Id, orphaning any
-    /// UI row already keyed on the old one.</summary>
+    /// UI row already keyed on the old one. Also clears <c>ScheduledStartAtUtc</c> back to
+    /// <c>NULL</c>: a row reaching this method is moving to <see cref="DownloadState.Running"/> or
+    /// <see cref="DownloadState.Queued"/>, never back to <see cref="DownloadState.Scheduled"/>, so
+    /// a stale schedule timestamp left over from a previous <see cref="DownloadState.Scheduled"/>
+    /// row at this same identity would be misleading if ever surfaced.</summary>
     public async Task<DownloadRecord> ResetForRestartAsync(Guid id, DownloadState state, long totalBytes)
     {
         using var connection = OpenConnection();
         var lastModifiedAt = DateTime.UtcNow;
         await connection.ExecuteAsync(
-            "UPDATE Downloads SET State = @State, TotalBytes = @TotalBytes, BytesDownloaded = 0, LastModifiedAt = @LastModifiedAt WHERE Id = @Id",
+            "UPDATE Downloads SET State = @State, TotalBytes = @TotalBytes, BytesDownloaded = 0, LastModifiedAt = @LastModifiedAt, ScheduledStartAtUtc = NULL WHERE Id = @Id",
             new
             {
                 Id = id.ToString(),
@@ -240,6 +339,7 @@ public sealed class DownloadRepository(string dbPath)
         public string CreatedAt { get; init; } = "";
         public string? LastModifiedAt { get; init; }
         public int QueueOrder { get; init; }
+        public string? ScheduledStartAtUtc { get; init; }
 
         public DownloadRecord ToRecord() => new(
             Guid.Parse(Id),
@@ -250,6 +350,7 @@ public sealed class DownloadRepository(string dbPath)
             BytesDownloaded,
             DateTime.Parse(CreatedAt).ToUniversalTime(),
             LastModifiedAt is null ? null : DateTime.Parse(LastModifiedAt).ToUniversalTime(),
-            QueueOrder);
+            QueueOrder,
+            ScheduledStartAtUtc is null ? null : DateTime.Parse(ScheduledStartAtUtc).ToUniversalTime());
     }
 }

@@ -300,6 +300,18 @@ public sealed partial class DownloadListViewModel : ViewModelBase, IDisposable
 
     private void OnCancelDismissed() => ActiveCancelConfirmation = null;
 
+    /// <summary>Context-menu "Cancel schedule" - no confirmation dialog, unlike
+    /// <see cref="RequestCancel"/>: a <see cref="DownloadState.Scheduled"/> row has nothing on
+    /// disk to lose, so <see cref="DownloadManager.CancelScheduledDownloadAsync"/> removes it
+    /// outright and the row is dropped from the list to match.</summary>
+    private void RequestCancelSchedule(DownloadRowViewModel row) => _ = CancelScheduleAsync(row);
+
+    private async Task CancelScheduleAsync(DownloadRowViewModel row)
+    {
+        if (await _downloadManager.CancelScheduledDownloadAsync(row.Id))
+            RemoveRow(row.Id);
+    }
+
     partial void OnSearchTextChanged(string value)
     {
         _ = value;
@@ -334,7 +346,8 @@ public sealed partial class DownloadListViewModel : ViewModelBase, IDisposable
         }
 
         var row = new DownloadRowViewModel(
-            _downloadManager, Columns, record, handle, RequestRemove, RequestContextRemove, RequestCancel, _showToast, _getDoubleClickAction);
+            _downloadManager, Columns, record, handle, RequestRemove, RequestContextRemove, RequestCancel,
+            RequestCancelSchedule, _showToast, _getDoubleClickAction);
         _allRows.Add(row);
         TrackRow(row);
         ApplyFilter();
@@ -399,6 +412,7 @@ public sealed partial class DownloadListViewModel : ViewModelBase, IDisposable
                         RequestRemove,
                         RequestContextRemove,
                         RequestCancel,
+                        RequestCancelSchedule,
                         _showToast,
                         _getDoubleClickAction);
                     _allRows.Add(newRow);

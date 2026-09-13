@@ -7,6 +7,23 @@
              mc:Ignorable="d" d:DesignWidth="440" d:DesignHeight="480"
              x:Class="AvaDM.UI.Views.AddDownloadView"
              x:DataType="vm:AddDownloadViewModel">
+    <UserControl.Styles>
+        <!-- Replaces CalendarDatePicker's built-in flip-calendar glyph (a hardcoded
+             CalendarDatePickerCalendarGlyphForeground brush showing today's day number) with the
+             app's own CalendarGeometry icon, the same OS-glyph-replacement pattern Icons.axaml
+             and Path.buttonIcon (Styles/Buttons.axaml) already use elsewhere. -->
+        <Style Selector="CalendarDatePicker /template/ Button#PART_Button">
+            <Setter Property="Template">
+                <ControlTemplate>
+                    <Border Background="Transparent">
+                        <Path Data="{StaticResource CalendarGeometry}"
+                              Width="16" Height="16" Stretch="Uniform"
+                              Fill="{DynamicResource TextSecondaryBrush}" />
+                    </Border>
+                </ControlTemplate>
+            </Setter>
+        </Style>
+    </UserControl.Styles>
     <Border Background="{DynamicResource SurfaceBrush}"
             BorderBrush="{DynamicResource BorderBrush}"
             BorderThickness="1"
@@ -37,6 +54,16 @@
                     <TextBox Grid.Column="0" Text="{Binding SaveDirectory}" PlaceholderText="Default download folder" />
                     <Button Grid.Column="1" Classes="secondary" Content="Browse..." Name="BrowseButton" Click="OnBrowseClick" />
                 </Grid>
+            </StackPanel>
+
+            <StackPanel Spacing="{StaticResource SpaceXs}">
+                <CheckBox Content="Schedule for later" IsChecked="{Binding IsScheduleEnabled}" />
+                <!-- Stacked, not side-by-side: TimePicker's Fluent theme MinWidth (242) is wider
+                     than half this dialog's content width, so a two-column split clips it. -->
+                <StackPanel Spacing="{StaticResource SpaceXs}" IsVisible="{Binding IsScheduleEnabled}">
+                    <CalendarDatePicker SelectedDate="{Binding ScheduledDate}" HorizontalAlignment="Stretch" />
+                    <TimePicker SelectedTime="{Binding ScheduledTime}" HorizontalAlignment="Stretch" />
+                </StackPanel>
             </StackPanel>
 
             <StackPanel Spacing="{StaticResource SpaceXs}">
@@ -92,7 +119,7 @@
 
             <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="{StaticResource SpaceSm}">
                 <Button Classes="secondary" Content="Cancel" Command="{Binding CancelCommand}" />
-                <Button Classes="primary" Content="Add Download" Command="{Binding SubmitCommand}" IsVisible="{Binding !HasConflict}" />
+                <Button Classes="primary" Content="{Binding SubmitButtonText}" Command="{Binding SubmitCommand}" IsVisible="{Binding !HasConflict}" />
             </StackPanel>
 
         </StackPanel>

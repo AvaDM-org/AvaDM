@@ -31,6 +31,14 @@ public sealed partial class AddDownloadViewModel : ViewModelBase
     private string? _pendingDestination;
     private DownloadOptions? _pendingOptions;
 
+    /// <summary>Set by <see cref="Submit"/> when <see cref="IsScheduleEnabled"/> holds a valid
+    /// future date/time; <c>null</c> otherwise. Drives <see cref="CompleteAddAsync"/>'s choice
+    /// between <see cref="DownloadManager.ScheduleDownloadAsync"/> and
+    /// <see cref="DownloadManager.AddDownloadAsync"/> - computed once here rather than at each of
+    /// the four call sites that funnel into <see cref="CompleteAddAsync"/> (the plain submit and
+    /// the three conflict-resolution buttons).</summary>
+    private DateTime? _pendingScheduledStartAtUtc;
+
     [ObservableProperty]
     private string _url = string.Empty;
 
@@ -42,6 +50,24 @@ public sealed partial class AddDownloadViewModel : ViewModelBase
 
     [ObservableProperty]
     private bool _isAdvancedExpanded;
+
+    /// <summary>The "Schedule for later" toggle. <see cref="CalendarDatePicker"/>/<see cref="TimePicker"/>
+    /// are local-wall-clock controls with no timezone concept of their own - the user picks and
+    /// sees local date/time throughout this dialog; the single UTC conversion happens once, in
+    /// <see cref="Submit"/>, right before handing off to <see cref="DownloadManager"/>.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(SubmitButtonText))]
+    private bool _isScheduleEnabled;
+
+    [ObservableProperty]
+    private DateTime? _scheduledDate;
+
+    [ObservableProperty]
+    private TimeSpan? _scheduledTime;
+
+    /// <summary>Submit button label - "Schedule Download" once scheduling is toggled on, so the
+    /// button's own text reflects what it's actually about to do.</summary>
+    public string SubmitButtonText => IsScheduleEnabled ? "Schedule Download" : "Add Download";
 
     [ObservableProperty]
     private string? _chunkCountInput;
@@ -103,6 +129,19 @@ public sealed partial class AddDownloadViewModel : ViewModelBase
     [RelayCommand]
     private void ToggleAdvanced() => IsAdvancedExpanded = !IsAdvancedExpanded;
 
+    /// <summary>Seeds sensible starting values the first time scheduling is turned on, so the
+    /// user isn't greeted with blank pickers and an immediate "pick both a date and a time"
+    /// error - doesn't overwrite a date/time the user already picked (e.g. toggled off and back
+    /// on).</summary>
+    partial void OnIsScheduleEnabledChanged(bool value)
+    {
+        if (!value)
+            return;
+
+        ScheduledDate ??= DateTime.Today;
+        ScheduledTime ??= DateTime.Now.TimeOfDay;
+    }
+
     [RelayCommand(CanExecute = nameof(CanSubmit))]
     private async Task Submit()
     {
@@ -141,6 +180,28 @@ public sealed partial class AddDownloadViewModel : ViewModelBase
             IsBusy = false;
             return;
         }
+
+        DateTime? scheduledStartAtUtc = null;
+        if (IsScheduleEnabled)
+        {
+            if (ScheduledDate is not { } date || ScheduledTime is not { } time)
+            {
+                ErrorMessage = "Pick both a date and a time to schedule for.";
+                IsBusy = false;
+                return;
+            }
+
+            var localStartAt = new DateTime(date.Year, date.Month, date.Day, time.Hours, time.Minutes, time.Seconds, DateTimeKind.Local);
+            if (localStartAt <= DateTime.Now)
+            {
+                ErrorMessage = "Scheduled time must be in the future.";
+                IsBusy = false;
+                return;
+            }
+
+            scheduledStartAtUtc = localStartAt.ToUniversalTime();
+        }
+        _pendingScheduledStartAtUtc = scheduledStartAtUtc;
 
         IsBusy = true;
         var conflict = await _downloadManager.CheckConflictAsync(uri, destination);
@@ -230,7 +291,9 @@ public sealed partial class AddDownloadViewModel : ViewModelBase
     {
         IsBusy = true;
         HasConflict = false;
-        var result = await _downloadManager.AddDownloadAsync(_pendingUri!, _pendingDestination, _pendingOptions, resolution);
+        var result = _pendingScheduledStartAtUtc is { } scheduledStartAtUtc
+            ? await _downloadManager.ScheduleDownloadAsync(_pendingUri!, _pendingDestination, scheduledStartAtUtc, _pendingOptions, resolution)
+            : await _downloadManager.AddDownloadAsync(_pendingUri!, _pendingDestination, _pendingOptions, resolution);
         IsBusy = false;
 
         if (!result.Success)
@@ -259,9 +322,10 @@ public sealed partial class AddDownloadViewModel : ViewModelBase
         }
 
         // result.Handle is null when the download queued instead of starting immediately (the
-        // concurrency limit was already reached) - that's still a successful add, not an error;
-        // the row shows up with no live handle (Queued status) and gets one later once
-        // DownloadManager.AdmitQueuedDownloadsAsync actually starts it.
+        // concurrency limit was already reached) or was scheduled for later - either way that's
+        // still a successful add, not an error; the row shows up with no live handle (Queued or
+        // Scheduled status) and gets one later, once DownloadManager.AdmitQueuedDownloadsAsync
+        // actually starts it.
         _onSubmitted(record, result.Handle);
     }
 }

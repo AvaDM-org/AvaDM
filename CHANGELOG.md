@@ -30,6 +30,18 @@ fail fast if its version has no section here**. Add the entry before pushing the
     again, rather than requiring a manual resume.
   - A queued download can now be paused too, holding it back until explicitly resumed - it's
     skipped when its turn comes up rather than needing to be removed from the queue.
+- **Scheduled downloads: start a download automatically at a future date/time.** ([#26](https://github.com/AvaDM-org/AvaDM/issues/26))
+  - The Add Download dialog's new **"Schedule for later"** toggle reveals a date/time picker (in
+    local time). Submitting with a time set schedules the download instead of starting or
+    queueing it immediately.
+  - A scheduled download shows a clock icon and **Scheduled** status until its time arrives, at
+    which point it hands off into the download queue from #25 exactly like a normal add - so the
+    concurrency limit is always honored, even if the queue is already full when the schedule
+    comes due.
+  - Right-click a scheduled row for **"Cancel schedule"** - removes it outright, with no
+    confirmation prompt, since nothing has been downloaded yet.
+  - A pending schedule survives an app restart and fires at (or immediately after, if the time
+    already passed while AvaDM was closed) the originally chosen moment.
 
 ## [2.1.0] - 2026-09-12
 

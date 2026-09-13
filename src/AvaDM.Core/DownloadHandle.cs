@@ -29,7 +29,17 @@ public enum DownloadState
     /// skipped when its turn comes, without needing to touch its position in the queue at all -
     /// resuming it just flips it back to <see cref="Queued"/>, at the same <c>QueueOrder</c> it
     /// already had.</summary>
-    QueuedPaused
+    QueuedPaused,
+
+    /// <summary>Scheduled to start automatically at a future <c>ScheduledStartAtUtc</c> - see
+    /// <see cref="DownloadScheduler"/>. Added last, not alphabetically/logically placed above, for
+    /// the same raw-integer-ordinal-persistence reason documented on <see cref="Queued"/>.
+    /// Deliberately kept distinct from <see cref="Queued"/> rather than modeling it as "queued
+    /// with a future timestamp": a scheduled item shouldn't occupy or compete for a queue position
+    /// (<c>QueueOrder</c>) until it's actually due - see
+    /// <see cref="DownloadRepository.PromoteScheduledToQueuedAsync"/>. No handle exists yet, same
+    /// as <see cref="Queued"/>.</summary>
+    Scheduled
 }
 
 public record DownloadOptions

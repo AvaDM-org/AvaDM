@@ -10,6 +10,7 @@
         Title="AvaDM"
         Icon="/Assets/avadm-logo.ico"
         Width="1000" Height="650"
+        MinWidth="800" MinHeight="500"
         Background="{DynamicResource BackgroundBrush}">
 
     <!-- Single window, no persistent app-chrome nav bar (per design.md's Layout section) - just

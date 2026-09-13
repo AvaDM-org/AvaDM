@@ -36,6 +36,7 @@ public enum DownloadDisplayStatus
     Failed,
     Cancelled,
     Interrupted,
+    Scheduled,
 }
 
 /// <summary>
@@ -64,6 +65,7 @@ public sealed partial class DownloadRowViewModel : ViewModelBase
     private readonly Action<DownloadRowViewModel> _onRemoveRequested;
     private readonly Action<DownloadRowViewModel> _onContextRemoveRequested;
     private readonly Action<DownloadRowViewModel> _onCancelRequested;
+    private readonly Action<DownloadRowViewModel> _onCancelScheduleRequested;
     private readonly Action<string> _onLogMessage;
     private readonly Func<DownloadDoubleClickAction> _getDoubleClickAction;
     private DownloadHandle? _handle;
@@ -73,6 +75,19 @@ public sealed partial class DownloadRowViewModel : ViewModelBase
     /// <summary>When this download was first added, straight from its persisted record. Immutable
     /// for the row's lifetime; drives the "Created" column and its sort.</summary>
     public DateTime CreatedAt { get; }
+
+    /// <summary>When a <see cref="DownloadState.Scheduled"/> row is due to start, straight from
+    /// its persisted record - <c>null</c> for every other row. Immutable for the row's lifetime,
+    /// same as <see cref="CreatedAt"/> (reschedule isn't supported in this cut). Drives
+    /// <see cref="ScheduledStartText"/>, shown as the clock icon's tooltip.</summary>
+    public DateTime? ScheduledStartAtUtc { get; }
+
+    /// <summary>Local-time text for <see cref="ScheduledStartAtUtc"/>, formatted exactly like
+    /// <see cref="CreatedText"/> - the user picked and sees local time throughout the Add Download
+    /// dialog, so it's shown back the same way here rather than as the stored UTC value.</summary>
+    public string ScheduledStartText => ScheduledStartAtUtc is { } dueUtc
+        ? $"Scheduled for {dueUtc.ToLocalTime():yyyy-MM-dd HH:mm}"
+        : string.Empty;
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(Extension))]
@@ -92,6 +107,7 @@ public sealed partial class DownloadRowViewModel : ViewModelBase
     [NotifyPropertyChangedFor(nameof(CanPause))]
     [NotifyPropertyChangedFor(nameof(CanResume))]
     [NotifyPropertyChangedFor(nameof(CanCancel))]
+    [NotifyPropertyChangedFor(nameof(CanCancelSchedule))]
     [NotifyPropertyChangedFor(nameof(SpeedText))]
     [NotifyPropertyChangedFor(nameof(EtaText))]
     [NotifyPropertyChangedFor(nameof(RunningEtaText))]
@@ -102,6 +118,7 @@ public sealed partial class DownloadRowViewModel : ViewModelBase
     [NotifyCanExecuteChangedFor(nameof(PauseCommand))]
     [NotifyCanExecuteChangedFor(nameof(ResumeCommand))]
     [NotifyCanExecuteChangedFor(nameof(CancelCommand))]
+    [NotifyCanExecuteChangedFor(nameof(CancelScheduleCommand))]
     [NotifyCanExecuteChangedFor(nameof(OpenDownloadCommand))]
     [NotifyCanExecuteChangedFor(nameof(MoveUpInQueueCommand))]
     [NotifyCanExecuteChangedFor(nameof(MoveDownInQueueCommand))]
@@ -222,6 +239,7 @@ public sealed partial class DownloadRowViewModel : ViewModelBase
         Action<DownloadRowViewModel> onRemoveRequested,
         Action<DownloadRowViewModel> onContextRemoveRequested,
         Action<DownloadRowViewModel> onCancelRequested,
+        Action<DownloadRowViewModel> onCancelScheduleRequested,
         Action<string> onLogMessage,
         Func<DownloadDoubleClickAction> getDoubleClickAction)
     {
@@ -230,10 +248,12 @@ public sealed partial class DownloadRowViewModel : ViewModelBase
         _onRemoveRequested = onRemoveRequested;
         _onContextRemoveRequested = onContextRemoveRequested;
         _onCancelRequested = onCancelRequested;
+        _onCancelScheduleRequested = onCancelScheduleRequested;
         _onLogMessage = onLogMessage;
         _getDoubleClickAction = getDoubleClickAction;
         Id = record.Id;
         CreatedAt = record.CreatedAt;
+        ScheduledStartAtUtc = record.ScheduledStartAtUtc;
         _fileName = Path.GetFileName(record.DestinationPath);
         _destinationPath = record.DestinationPath;
         _sourceUrl = record.Uri;
@@ -325,9 +345,9 @@ public sealed partial class DownloadRowViewModel : ViewModelBase
         : "-";
 
     public DownloadDisplayStatus DisplayStatus =>
-        // Queued is deliberately excluded from the Interrupted check below: a queued row has no
-        // live handle by design (it hasn't started yet), which is not the same thing as a
-        // Running/Paused/Pending row that lost its handle to a process restart.
+        // Queued and Scheduled are both deliberately excluded from the Interrupted check below:
+        // neither has a live handle by design (neither has started yet), which is not the same
+        // thing as a Running/Paused/Pending row that lost its handle to a process restart.
         !HasActiveHandle && State is DownloadState.Pending or DownloadState.Running or DownloadState.Paused
             ? DownloadDisplayStatus.Interrupted
             : State switch
@@ -343,6 +363,7 @@ public sealed partial class DownloadRowViewModel : ViewModelBase
                 DownloadState.Completed => DownloadDisplayStatus.Completed,
                 DownloadState.Failed => DownloadDisplayStatus.Failed,
                 DownloadState.Cancelled => DownloadDisplayStatus.Cancelled,
+                DownloadState.Scheduled => DownloadDisplayStatus.Scheduled,
                 _ => DownloadDisplayStatus.Pending,
             };
 
@@ -375,6 +396,12 @@ public sealed partial class DownloadRowViewModel : ViewModelBase
     // handle-less row.
     public bool CanCancel => State is DownloadState.Queued or DownloadState.QueuedPaused
         || (HasActiveHandle && State is DownloadState.Running or DownloadState.Paused or DownloadState.Pending);
+
+    /// <summary>Whether the "Cancel schedule" context-menu action applies to this row - a
+    /// separate action from <see cref="CanCancel"/>/<see cref="Cancel"/> above, since a
+    /// <see cref="DownloadState.Scheduled"/> row is removed outright rather than left behind as a
+    /// terminal Cancelled row (see <see cref="DownloadManager.CancelScheduledDownloadAsync"/>).</summary>
+    public bool CanCancelSchedule => State == DownloadState.Scheduled;
 
     /// <summary>Whether the "Move up/down in queue" context menu actions apply to this row.
     /// Both commands are safe to invoke even at either end of the queue -
@@ -548,6 +575,12 @@ public sealed partial class DownloadRowViewModel : ViewModelBase
 
     [RelayCommand(CanExecute = nameof(CanCancel))]
     private void Cancel() => _onCancelRequested(this);
+
+    /// <summary>Context-menu "Cancel schedule" on a <see cref="DownloadState.Scheduled"/> row -
+    /// unlike <see cref="Cancel"/> above, no confirmation dialog: nothing has been downloaded yet,
+    /// so there's no file-delete choice to make and no risk of losing progress.</summary>
+    [RelayCommand(CanExecute = nameof(CanCancelSchedule))]
+    private void CancelSchedule() => _onCancelScheduleRequested(this);
 
     /// <summary>Context-menu "Move up in queue" - swaps this row's QueueOrder with whichever
     /// queued download is currently ahead of it. A no-op (from DownloadManager) if this row is

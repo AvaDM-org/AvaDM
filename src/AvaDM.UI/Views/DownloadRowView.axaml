@@ -28,6 +28,8 @@
                           IsVisible="{Binding CanReorderInQueue}" />
                 <MenuItem Header="Move down in queue" Command="{Binding MoveDownInQueueCommand}"
                           IsVisible="{Binding CanReorderInQueue}" />
+                <MenuItem Header="Cancel schedule" Command="{Binding CancelScheduleCommand}"
+                          IsVisible="{Binding CanCancelSchedule}" />
                 <Separator />
                 <MenuItem Header="Remove" Command="{Binding ContextRemoveCommand}" />
             </ContextMenu>
@@ -44,12 +46,21 @@
             <Grid Grid.Column="1" ColumnDefinitions="*,160" VerticalAlignment="Center">
                 <StackPanel Grid.Column="0" Spacing="{StaticResource SpaceXs}"
                             VerticalAlignment="Center" Margin="0,0,8,0">
-                    <TextBlock Text="{Binding FileName}"
-                               ToolTip.Tip="{Binding FileName}"
-                               TextTrimming="CharacterEllipsis"
-                               FontSize="{StaticResource HeadingSmFontSize}"
-                               FontWeight="{StaticResource HeadingSmFontWeight}"
-                               Foreground="{DynamicResource TextPrimaryBrush}" />
+                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="{StaticResource SpaceXs}">
+                        <TextBlock Grid.Column="0" Text="{Binding FileName}"
+                                   ToolTip.Tip="{Binding FileName}"
+                                   TextTrimming="CharacterEllipsis"
+                                   FontSize="{StaticResource HeadingSmFontSize}"
+                                   FontWeight="{StaticResource HeadingSmFontWeight}"
+                                   Foreground="{DynamicResource TextPrimaryBrush}" />
+                        <Panel Grid.Column="1" Width="14" Height="14" VerticalAlignment="Center"
+                               IsVisible="{Binding CanCancelSchedule}"
+                               ToolTip.Tip="{Binding ScheduledStartText}">
+                            <Path Data="{StaticResource ClockGeometry}"
+                                  Width="14" Height="14" Stretch="Uniform"
+                                  Fill="{DynamicResource TextSecondaryBrush}" />
+                        </Panel>
+                    </Grid>
                     <TextBlock Text="{Binding DestinationPath}"
                                ToolTip.Tip="{Binding DestinationPath}"
                                TextTrimming="CharacterEllipsis"
