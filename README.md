@@ -1,5 +1,7 @@
 # AvaDM
 
+<img width="2560" height="1280" alt="avadm-banner" src="https://github.com/user-attachments/assets/16423561-bdd6-433e-8eb5-089e551e01a4" />
+
 **A modern, open-source download manager for Windows, Linux, and macOS.**
 
 AvaDM is a fast, reliable, easy-to-use alternative to XDM, IDM, and FDM. It downloads files faster by grabbing several pieces at once, can pause and resume downloads, and looks and feels like a native app on every major platform.
