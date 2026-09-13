@@ -46,21 +46,21 @@
             <Grid Grid.Column="1" ColumnDefinitions="*,160" VerticalAlignment="Center">
                 <StackPanel Grid.Column="0" Spacing="{StaticResource SpaceXs}"
                             VerticalAlignment="Center" Margin="0,0,8,0">
-                    <StackPanel Orientation="Horizontal" Spacing="{StaticResource SpaceXs}">
-                        <Panel Width="14" Height="14" VerticalAlignment="Center"
+                    <Grid ColumnDefinitions="Auto,*" ColumnSpacing="{StaticResource SpaceXs}">
+                        <Panel Grid.Column="0" Width="14" Height="14" VerticalAlignment="Center"
                                IsVisible="{Binding CanCancelSchedule}"
                                ToolTip.Tip="{Binding ScheduledStartText}">
                             <Path Data="{StaticResource ClockGeometry}"
                                   Width="14" Height="14" Stretch="Uniform"
                                   Fill="{DynamicResource TextSecondaryBrush}" />
                         </Panel>
-                        <TextBlock Text="{Binding FileName}"
+                        <TextBlock Grid.Column="1" Text="{Binding FileName}"
                                    ToolTip.Tip="{Binding FileName}"
                                    TextTrimming="CharacterEllipsis"
                                    FontSize="{StaticResource HeadingSmFontSize}"
                                    FontWeight="{StaticResource HeadingSmFontWeight}"
                                    Foreground="{DynamicResource TextPrimaryBrush}" />
-                    </StackPanel>
+                    </Grid>
                     <TextBlock Text="{Binding DestinationPath}"
                                ToolTip.Tip="{Binding DestinationPath}"
                                TextTrimming="CharacterEllipsis"
