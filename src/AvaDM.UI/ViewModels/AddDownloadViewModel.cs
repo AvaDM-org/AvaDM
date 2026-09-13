@@ -60,7 +60,7 @@ public sealed partial class AddDownloadViewModel : ViewModelBase
     private bool _isScheduleEnabled;
 
     [ObservableProperty]
-    private DateTimeOffset? _scheduledDate;
+    private DateTime? _scheduledDate;
 
     [ObservableProperty]
     private TimeSpan? _scheduledTime;
@@ -138,7 +138,7 @@ public sealed partial class AddDownloadViewModel : ViewModelBase
         if (!value)
             return;
 
-        ScheduledDate ??= DateTimeOffset.Now.Date;
+        ScheduledDate ??= DateTime.Today;
         ScheduledTime ??= DateTime.Now.TimeOfDay;
     }
 

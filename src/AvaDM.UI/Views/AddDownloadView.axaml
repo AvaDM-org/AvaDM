@@ -7,6 +7,23 @@
              mc:Ignorable="d" d:DesignWidth="440" d:DesignHeight="480"
              x:Class="AvaDM.UI.Views.AddDownloadView"
              x:DataType="vm:AddDownloadViewModel">
+    <UserControl.Styles>
+        <!-- Replaces CalendarDatePicker's built-in flip-calendar glyph (a hardcoded
+             CalendarDatePickerCalendarGlyphForeground brush showing today's day number) with the
+             app's own CalendarGeometry icon, the same OS-glyph-replacement pattern Icons.axaml
+             and Path.buttonIcon (Styles/Buttons.axaml) already use elsewhere. -->
+        <Style Selector="CalendarDatePicker /template/ Button#PART_Button">
+            <Setter Property="Template">
+                <ControlTemplate>
+                    <Border Background="Transparent">
+                        <Path Data="{StaticResource CalendarGeometry}"
+                              Width="16" Height="16" Stretch="Uniform"
+                              Fill="{DynamicResource TextSecondaryBrush}" />
+                    </Border>
+                </ControlTemplate>
+            </Setter>
+        </Style>
+    </UserControl.Styles>
     <Border Background="{DynamicResource SurfaceBrush}"
             BorderBrush="{DynamicResource BorderBrush}"
             BorderThickness="1"
@@ -41,11 +58,12 @@
 
             <StackPanel Spacing="{StaticResource SpaceXs}">
                 <CheckBox Content="Schedule for later" IsChecked="{Binding IsScheduleEnabled}" />
-                <Grid ColumnDefinitions="*,*" ColumnSpacing="{StaticResource SpaceSm}"
-                      IsVisible="{Binding IsScheduleEnabled}">
-                    <CalendarDatePicker Grid.Column="0" SelectedDate="{Binding ScheduledDate}" HorizontalAlignment="Stretch" />
-                    <TimePicker Grid.Column="1" SelectedTime="{Binding ScheduledTime}" HorizontalAlignment="Stretch" />
-                </Grid>
+                <!-- Stacked, not side-by-side: TimePicker's Fluent theme MinWidth (242) is wider
+                     than half this dialog's content width, so a two-column split clips it. -->
+                <StackPanel Spacing="{StaticResource SpaceXs}" IsVisible="{Binding IsScheduleEnabled}">
+                    <CalendarDatePicker SelectedDate="{Binding ScheduledDate}" HorizontalAlignment="Stretch" />
+                    <TimePicker SelectedTime="{Binding ScheduledTime}" HorizontalAlignment="Stretch" />
+                </StackPanel>
             </StackPanel>
 
             <StackPanel Spacing="{StaticResource SpaceXs}">
