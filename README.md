@@ -2,18 +2,20 @@
 
 **A modern, open-source download manager for Linux, Windows, and macOS.**
 
-AvaDM is a fast, reliable, and feature-rich alternative to XDM, IDM, and FDM. Built with C#/.NET on the cutting-edge [Avalonia](https://avaloniaui.net) framework, it delivers concurrent multi-segment downloads, intelligent resumption, and a beautiful native desktop experience across all major platforms.
+AvaDM is a fast, reliable, easy-to-use alternative to XDM, IDM, and FDM. It downloads files faster by grabbing several pieces at once, can pause and resume downloads, and looks and feels like a native app on every major platform.
 
 ## Features
 
-- **Multi-segment Downloads** — Split files into multiple concurrent chunks for faster downloads (with fallback to single-stream for non-compliant servers), you can choose the amount of segments in the settings
-- **Intelligent Resumption** — Pause and resume downloads at will; automatically recover from connection failures with exponential backoff
-- **Speed Control** — Real-time speed limiting to cap bandwidth consumption
-- **Persistent Storage** — SQLite index automatically saves progress and metadata, surviving application restarts
-- **Cross-Platform** — Native support for Linux, Windows, and macOS with platform-specific UI integrations
-- **System Integration** — Autostart on login, tray icon with live download status, desktop shortcuts, and system notifications
-- **Auto-Update** — Built-in update checker with safe in-place replacement
-- **Crash Reporting** — Automatic error logging and GitHub issue pre-fill for quick troubleshooting
+- **Downloads Files Faster** — AvaDM splits a file into several pieces and downloads them all at once, so it usually finishes much faster than a normal download. If a site doesn't support this, AvaDM just downloads the file the regular way instead
+- **Pause, Resume, and Retry** — Pause a download and pick it up again later, even after closing and reopening AvaDM. If your internet connection drops partway through, AvaDM keeps trying on its own
+- **Download Queue** — Add as many downloads as you like. AvaDM works on a limited number at a time and starts the next one automatically as soon as room opens up — you decide how many run at once
+- **Schedule Downloads for Later** — Pick a date and time, and AvaDM will start the download for you automatically, even if you're not around when it happens
+- **Speed Limit** — Set a maximum download speed so AvaDM doesn't slow down the rest of your internet
+- **Remembers Everything** — Your downloads and their progress are saved automatically, so nothing is lost if you close AvaDM or restart your computer
+- **Works Everywhere** — One app with the same look and features on Windows, Linux, and macOS
+- **Runs Quietly in the Background** — Keep AvaDM in the system tray, see progress at a glance, and optionally have it start automatically when you log in
+- **Updates Itself** — AvaDM can check for new versions and update itself with one click
+- **Easy to Report Problems** — If something goes wrong, AvaDM helps you send a bug report with the details already filled in
 
 ## Quick Start
 
@@ -71,23 +73,25 @@ AvaDM's core (`Downloader.cs`) uses modern .NET patterns for efficient concurren
 
 ### Desktop UI (Avalonia)
 
-- **Downloads Page** — Live progress per download and per chunk, with pause/resume/cancel controls
-- **Settings Page** — Configure download directory, chunk count, retries, speed limits, and UI preferences
+- **Downloads Page** — Live progress per download and per chunk, with pause/resume/cancel controls, a concurrency-limited queue, and scheduled downloads
+- **Settings Page** — Configure download directory, chunk count, max concurrent downloads, retries, speed limits, and UI preferences
 - **Tray Integration** — Quick access to active downloads and window control
 - **Auto-Update** — Check and apply updates with automatic restart
 - **Dark/Light Themes** — Seamless theme support
 
-## Configuration
+## Settings
 
-Most settings are available in the UI:
+Everything below can be changed from the Settings page in the app:
 
-- **Download Directory** — Where completed files are saved
-- **Chunk Count** — Number of parallel segments (1–n; default 5)
-- **Retry Strategy** — Max attempts and backoff delay (default: 5 attempts, 30s per-attempt timeout)
-- **Speed Limit** — Bytes per second (adjustable while downloading)
-- **Repository Path** — Location of the SQLite metadata database (defaults to platform app-data directory)
+- **Download Folder** — Where finished downloads are saved
+- **Connections per Download** — How many pieces AvaDM splits a file into (default: 5)
+- **Max Concurrent Downloads** — How many downloads can run at the same time; anything beyond that waits in a queue and starts automatically once a slot opens up (default: 10)
+- **Retries** — How many times AvaDM retries a failed download, and how long it waits between tries
+- **Speed Limit** — The fastest AvaDM is allowed to download, even while a download is already running
+- **Resume on Startup** — Optionally have AvaDM automatically pick back up any unfinished downloads the next time it opens
+- **Storage Location** — Where AvaDM keeps track of your download history (for advanced users)
 
-UI-only preferences (theme, close-to-tray, autostart) are stored alongside the metadata.
+Appearance (light/dark), minimize-to-tray, and autostart preferences are also saved automatically.
 
 ## Console Interface
 
@@ -120,17 +124,6 @@ The workflow builds Windows, Linux, and macOS artifacts in parallel:
 - **macOS** — DMG with `.app` bundle for both x64 and ARM64
 
 All artifacts are verified against `SHA256SUMS.txt` before in-place updates.
-
-## Roadmap
-
-Planned features (not yet implemented):
-
-- Automatic download rehydration on startup
-- Dynamic chunk tuning and retry-with-resume
-- ETag/Last-Modified revalidation
-- Richer protocol support (FTP, magnet, torrent)
-- Code signing (Windows executables and macOS notarization)
-- End-to-end test coverage for network failures and disk errors
 
 ## Development
 
