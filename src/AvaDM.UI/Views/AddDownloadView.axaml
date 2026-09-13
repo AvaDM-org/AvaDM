@@ -40,6 +40,15 @@
             </StackPanel>
 
             <StackPanel Spacing="{StaticResource SpaceXs}">
+                <CheckBox Content="Schedule for later" IsChecked="{Binding IsScheduleEnabled}" />
+                <Grid ColumnDefinitions="*,*" ColumnSpacing="{StaticResource SpaceSm}"
+                      IsVisible="{Binding IsScheduleEnabled}">
+                    <CalendarDatePicker Grid.Column="0" SelectedDate="{Binding ScheduledDate}" HorizontalAlignment="Stretch" />
+                    <TimePicker Grid.Column="1" SelectedTime="{Binding ScheduledTime}" HorizontalAlignment="Stretch" />
+                </Grid>
+            </StackPanel>
+
+            <StackPanel Spacing="{StaticResource SpaceXs}">
                 <Button Classes="icon" Command="{Binding ToggleAdvancedCommand}" HorizontalAlignment="Left">
                     <StackPanel Orientation="Horizontal" Spacing="{StaticResource SpaceXs}">
                         <Panel Width="16" Height="16">
@@ -92,7 +101,7 @@
 
             <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="{StaticResource SpaceSm}">
                 <Button Classes="secondary" Content="Cancel" Command="{Binding CancelCommand}" />
-                <Button Classes="primary" Content="Add Download" Command="{Binding SubmitCommand}" IsVisible="{Binding !HasConflict}" />
+                <Button Classes="primary" Content="{Binding SubmitButtonText}" Command="{Binding SubmitCommand}" IsVisible="{Binding !HasConflict}" />
             </StackPanel>
 
         </StackPanel>
