@@ -70,13 +70,24 @@ public sealed class DownloadManager
     /// handle's own terminal-state write can land after the caller's, silently reverting it. See
     /// AddDownloadAsync's stale-handle-replacement step.</summary>
     private readonly ConcurrentDictionary<Guid, Task> _pendingFinalizations = new();
+
+    /// <summary>Owns the wait loop for every <see cref="DownloadState.Scheduled"/> download - see
+    /// <see cref="DownloadScheduler"/>. <see cref="OnScheduledDueAsync"/> is the only callback it's
+    /// ever constructed with: the scheduler never starts a transfer itself, it only promotes a
+    /// row to <see cref="DownloadState.Queued"/> and lets normal admission take it from there.</summary>
+    private readonly DownloadScheduler _scheduler;
+
     private bool _initialized;
 
-    public DownloadManager(HttpClient client, DownloadSettings settings)
+    /// <summary><paramref name="timeProvider"/> defaults to <see cref="TimeProvider.System"/> for
+    /// every real caller (the desktop app, the console harness); tests inject a fake one to drive
+    /// <see cref="DownloadScheduler"/> deterministically without a real wait.</summary>
+    public DownloadManager(HttpClient client, DownloadSettings settings, TimeProvider? timeProvider = null)
     {
         _settings = settings;
         _downloader = new Downloader(client, settings);
         _repository = new DownloadRepository(settings.GetResolvedRepositoryPath());
+        _scheduler = new DownloadScheduler(OnScheduledDueAsync, timeProvider);
     }
 
     /// <summary>Resolves the destination path the same way <see cref="AddDownloadAsync"/> would,
@@ -98,18 +109,133 @@ public sealed class DownloadManager
     {
         await EnsureInitializedAsync();
 
+        var (proceed, id, resolvedPath, conflict, error) = await ResolveConflictAsync(uri, destinationPath, resolution);
+        if (!proceed)
+            return new AddDownloadResult(false, null, null, conflict, error);
+
+        var isRestart = conflict?.HasConflict == true && resolution is ConflictResolution.Resume or ConflictResolution.Overwrite;
+
+        // Persists the row as either Running or Queued, matching whatever TryStartHandleAsync
+        // below decides. Queuing under Resume preserves BytesDownloaded/TotalBytes rather than
+        // resetting them - the .avadm footer's progress is still genuinely on disk, untouched,
+        // since nothing has actually restarted yet. Overwrite already deleted the footer earlier
+        // in ResolveConflictAsync regardless of whether the retry starts immediately or queues, so
+        // resetting to 0 there is honest either way.
+        Task PersistAsync(DownloadState state)
+        {
+            if (isRestart)
+            {
+                return state == DownloadState.Queued && resolution is ConflictResolution.Resume
+                    ? _repository.UpdateStateAsync(id, state)
+                    : _repository.ResetForRestartAsync(id, state, 0);
+            }
+
+            return _repository.InsertAsync(id, uri.AbsoluteUri, resolvedPath, state, 0);
+        }
+
+        // Only actually starts the transfer (and only then calls Downloader.StartDownload) if
+        // there's a free concurrency slot right now; otherwise the row is persisted as Queued and
+        // AdmitQueuedDownloadsAsync starts it later once one opens up.
+        var handle = await TryStartHandleAsync(id, uri, resolvedPath, options, PersistAsync);
+
+        if (handle is null)
+            _queuedOptions[id] = options;
+        // else: TryStartHandleAsync already persisted Running, registered the handle in
+        // _activeHandles, and wired SyncToRepository, all under the same lock acquisition as the
+        // admission check itself - see that method's doc comment for why that has to be one
+        // atomic step, not several.
+
+        return new AddDownloadResult(true, id, handle, null);
+    }
+
+    /// <summary>Schedules a download to start automatically at <paramref name="scheduledStartAtUtc"/>,
+    /// persisting it as <see cref="DownloadState.Scheduled"/> and arming
+    /// <see cref="DownloadScheduler"/> rather than starting or queueing it now. When it comes due,
+    /// the scheduler flips the row to <see cref="DownloadState.Queued"/> and runs a normal
+    /// <see cref="AdmitQueuedDownloadsAsync"/> pass - it never starts a transfer directly, so the
+    /// concurrency limit is honored exactly as it would be for any other queued download. Shares
+    /// <see cref="AddDownloadAsync"/>'s conflict-check-and-resolve step (<see cref="ResolveConflictAsync"/>)
+    /// so a schedule that resolves onto an existing row via Resume/Overwrite gets the same
+    /// stale-live-handle handling, rather than risking the exact race class #25's manual testing
+    /// found (see that method's doc comment).</summary>
+    public async Task<AddDownloadResult> ScheduleDownloadAsync(
+        Uri uri, string? destinationPath, DateTime scheduledStartAtUtc, DownloadOptions? options = null, ConflictResolution? resolution = null)
+    {
+        await EnsureInitializedAsync();
+
+        var (proceed, id, resolvedPath, conflict, error) = await ResolveConflictAsync(uri, destinationPath, resolution);
+        if (!proceed)
+            return new AddDownloadResult(false, null, null, conflict, error);
+
+        var isRestart = conflict?.HasConflict == true && resolution is ConflictResolution.Resume or ConflictResolution.Overwrite;
+        if (isRestart)
+            await _repository.ResetForScheduleAsync(id, scheduledStartAtUtc);
+        else
+            await _repository.InsertScheduledAsync(id, uri.AbsoluteUri, resolvedPath, scheduledStartAtUtc);
+
+        // Same in-memory-only store AdmitQueuedDownloadsAsync already reads from when a queued
+        // download is finally started - reused here rather than a second dictionary, since it
+        // already accepts (and documents) not surviving a process restart.
+        _queuedOptions[id] = options;
+        _scheduler.Arm(id, scheduledStartAtUtc);
+
+        return new AddDownloadResult(true, id, null, null);
+    }
+
+    /// <summary>Cancels an armed schedule and removes the row entirely, rather than persisting it
+    /// as a terminal <see cref="DownloadState.Cancelled"/> row the way
+    /// <see cref="CancelDownloadAsync"/> does for an in-flight download: unlike that case, nothing
+    /// has ever been written to disk for a <see cref="DownloadState.Scheduled"/> row (no
+    /// <c>.avadm</c> working file exists yet), so a lingering zero-byte "Cancelled" stub would
+    /// carry no information worth keeping. A no-op (returns <c>false</c>) if the row isn't
+    /// currently <see cref="DownloadState.Scheduled"/>.</summary>
+    public async Task<bool> CancelScheduledDownloadAsync(Guid id)
+    {
+        await EnsureInitializedAsync();
+
+        var record = await _repository.GetByIdAsync(id);
+        if (record is null || record.State != DownloadState.Scheduled)
+            return false;
+
+        _scheduler.Cancel(id);
+        await _repository.DeleteAsync(id);
+        _queuedOptions.TryRemove(id, out _);
+        _autoRetryAttempts.TryRemove(id, out _);
+        return true;
+    }
+
+    /// <summary>Shared conflict-check-and-resolve step for <see cref="AddDownloadAsync"/> and
+    /// <see cref="ScheduleDownloadAsync"/>: resolves the destination, checks the index for an
+    /// existing (Uri, DestinationPath) row, and - when <paramref name="resolution"/> is given -
+    /// applies it (Resume validates the existing row isn't already Completed and otherwise falls
+    /// through to Downloader's own .avadm-footer resume logic; Overwrite deletes any existing
+    /// working file; RenameDestination re-checks the new path for a conflict of its own). For
+    /// Resume/Overwrite, also stops and fully awaits finalization of any handle still live for
+    /// that same id before returning - see <see cref="AddDownloadAsync"/>'s original doc comment
+    /// (now here) for why this exact await, not just the handle's <see cref="DownloadHandle.Completion"/>,
+    /// is required to avoid a stale terminal-state write landing after the caller's own.
+    ///
+    /// Returns <c>Proceed: false</c> (with <paramref name="conflict"/>/an error message set) when
+    /// the caller should stop and hand the conflict back - no resolution given, a Resume onto an
+    /// already-Completed row, or a RenameDestination target that's itself conflicting. Otherwise
+    /// returns the id to persist under (the existing row's id for Resume/Overwrite, a fresh one
+    /// otherwise - RenameDestination always gets a fresh row, since its target path was already
+    /// confirmed conflict-free) and the resolved destination path.</summary>
+    private async Task<(bool Proceed, Guid Id, string ResolvedPath, ConflictCheckResult? Conflict, string? Error)>
+        ResolveConflictAsync(Uri uri, string? destinationPath, ConflictResolution? resolution)
+    {
         var resolvedPath = ResolvePath(uri, destinationPath);
         var conflict = await _repository.CheckConflictAsync(uri.AbsoluteUri, resolvedPath);
 
         if (conflict.HasConflict)
         {
             if (resolution is null)
-                return new AddDownloadResult(false, null, null, conflict);
+                return (false, default, resolvedPath, conflict, null);
 
             if (resolution is ConflictResolution.Resume)
             {
                 if (conflict.ExistingRecord!.State == DownloadState.Completed)
-                    return new AddDownloadResult(false, null, null, conflict, "Download already completed.");
+                    return (false, default, resolvedPath, conflict, "Download already completed.");
                 // Fall through: Downloader detects and resumes from the .avadm sidecar itself.
             }
             else if (resolution is ConflictResolution.Overwrite)
@@ -123,7 +249,7 @@ public sealed class DownloadManager
                 var renamedPath = ResolvePath(uri, rename.NewPath);
                 var renameConflict = await _repository.CheckConflictAsync(uri.AbsoluteUri, renamedPath);
                 if (renameConflict.HasConflict)
-                    return new AddDownloadResult(false, null, null, renameConflict);
+                    return (false, default, resolvedPath, renameConflict, null);
                 resolvedPath = renamedPath;
             }
             else
@@ -150,11 +276,12 @@ public sealed class DownloadManager
                 // Completion finishing only means the transfer stopped, not that
                 // FinalizeDownloadAsync (a separate, unawaited continuation on it) has actually
                 // written the stale handle's terminal state (Cancelled) to the repository yet.
-                // Without this, that write could land after this call's own Running/Queued write
-                // for the very same id further down, silently reverting it back to Cancelled -
-                // found via manual testing of #25, where routing every Resume through here (rather
-                // than resuming a Paused handle in place) made this race hit on every single
-                // pause-then-resume instead of only on the rarer resume-a-failed-download path.
+                // Without this, that write could land after the caller's own Running/Queued/
+                // Scheduled write for the very same id further down, silently reverting it back to
+                // Cancelled - found via manual testing of #25, where routing every Resume through
+                // here (rather than resuming a Paused handle in place) made this race hit on every
+                // single pause-then-resume instead of only on the rarer resume-a-failed-download
+                // path.
                 if (_pendingFinalizations.TryGetValue(conflict.ExistingRecord!.Id, out var pendingFinalize))
                 {
                     try
@@ -190,37 +317,7 @@ public sealed class DownloadManager
             ? conflict.ExistingRecord!.Id
             : Guid.NewGuid();
 
-        // Persists the row as either Running or Queued, matching whatever TryStartHandleAsync
-        // below decides. Queuing under Resume preserves BytesDownloaded/TotalBytes rather than
-        // resetting them - the .avadm footer's progress is still genuinely on disk, untouched,
-        // since nothing has actually restarted yet. Overwrite already deleted the footer earlier
-        // in this method regardless of whether the retry starts immediately or queues, so
-        // resetting to 0 there is honest either way.
-        Task PersistAsync(DownloadState state)
-        {
-            if (conflict.HasConflict && resolution is ConflictResolution.Resume or ConflictResolution.Overwrite)
-            {
-                return state == DownloadState.Queued && resolution is ConflictResolution.Resume
-                    ? _repository.UpdateStateAsync(id, state)
-                    : _repository.ResetForRestartAsync(id, state, 0);
-            }
-
-            return _repository.InsertAsync(id, uri.AbsoluteUri, resolvedPath, state, 0);
-        }
-
-        // Only actually starts the transfer (and only then calls Downloader.StartDownload) if
-        // there's a free concurrency slot right now; otherwise the row is persisted as Queued and
-        // AdmitQueuedDownloadsAsync starts it later once one opens up.
-        var handle = await TryStartHandleAsync(id, uri, resolvedPath, options, PersistAsync);
-
-        if (handle is null)
-            _queuedOptions[id] = options;
-        // else: TryStartHandleAsync already persisted Running, registered the handle in
-        // _activeHandles, and wired SyncToRepository, all under the same lock acquisition as the
-        // admission check itself - see that method's doc comment for why that has to be one
-        // atomic step, not several.
-
-        return new AddDownloadResult(true, id, handle, null);
+        return (true, id, resolvedPath, conflict.HasConflict ? conflict : null, null);
     }
 
     private int RunningHandleCount() => _activeHandles.Values.Count(h => h.State == DownloadState.Running);
@@ -737,14 +834,30 @@ public sealed class DownloadManager
             handle.Log($"Automatic retry could not be started: {result.Error}");
     }
 
+    /// <summary>The callback <see cref="_scheduler"/> invokes once a schedule's due time arrives:
+    /// promotes the row to <see cref="DownloadState.Queued"/> (assigning it a real
+    /// <c>QueueOrder</c> for the first time - see <see cref="DownloadRepository.PromoteScheduledToQueuedAsync"/>)
+    /// and runs a normal admission pass. Deliberately never calls <see cref="Downloader.StartDownload"/>
+    /// directly - see <see cref="DownloadScheduler"/>'s doc comment.</summary>
+    private async Task OnScheduledDueAsync(Guid id)
+    {
+        await _repository.PromoteScheduledToQueuedAsync(id);
+        await AdmitQueuedDownloadsAsync();
+    }
+
     /// <summary>Runs the real initialization exactly once per <see cref="DownloadManager"/>
     /// instance (the double-checked <c>_initialized</c> flag guarantees that), and - only for
     /// whichever caller was the one to actually perform it - follows up with
     /// <see cref="ResumeAllInterruptedAsync"/> when <see cref="DownloadSettings.AutoResumeDownloadsOnStartup"/>
-    /// is on. Every other concurrent caller returns before reaching that point, so it can't run
-    /// twice; a caller that returns early may occasionally observe repository state fractionally
-    /// ahead of the resume-all pass completing, which is fine - nothing here promises otherwise,
-    /// and the UI already reconciles against the repository on its own poll.</summary>
+    /// is on, and unconditionally re-arms every persisted <see cref="DownloadState.Scheduled"/>
+    /// row (not gated by that setting - a schedule is an explicit future commitment independent of
+    /// whether interrupted transfers should auto-resume). A schedule whose due time already passed
+    /// while the app was closed just fires immediately once armed - see
+    /// <see cref="DownloadScheduler.Arm"/>, no special-casing needed here. Every other concurrent
+    /// caller returns before reaching that point, so it can't run twice; a caller that returns
+    /// early may occasionally observe repository state fractionally ahead of the resume-all pass
+    /// completing, which is fine - nothing here promises otherwise, and the UI already reconciles
+    /// against the repository on its own poll.</summary>
     private async Task EnsureInitializedAsync()
     {
         if (_initialized)
@@ -762,6 +875,10 @@ public sealed class DownloadManager
         {
             _initLock.Release();
         }
+
+        var scheduled = (await _repository.GetAllAsync()).Where(r => r.State == DownloadState.Scheduled);
+        foreach (var record in scheduled)
+            _scheduler.Arm(record.Id, record.ScheduledStartAtUtc!.Value);
 
         if (_settings.AutoResumeDownloadsOnStartup)
             await ResumeAllInterruptedAsync();
