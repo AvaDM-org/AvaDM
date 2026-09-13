@@ -1,6 +1,6 @@
 # AvaDM
 
-**A modern, open-source download manager for Linux, Windows, and macOS.**
+**A modern, open-source download manager for Windows, Linux, and macOS.**
 
 AvaDM is a fast, reliable, easy-to-use alternative to XDM, IDM, and FDM. It downloads files faster by grabbing several pieces at once, can pause and resume downloads, and looks and feels like a native app on every major platform.
 
@@ -17,67 +17,13 @@ AvaDM is a fast, reliable, easy-to-use alternative to XDM, IDM, and FDM. It down
 - **Updates Itself** — AvaDM can check for new versions and update itself with one click
 - **Easy to Report Problems** — If something goes wrong, AvaDM helps you send a bug report with the details already filled in
 
-## Quick Start
+## Download & Install
 
-### Download & Install
+Grab the latest version from the [Releases](https://github.com/AvaDM-org/AvaDM/releases) page:
 
-Visit the [Releases](https://github.com/AvaDM-org/AvaDM/releases) page for pre-built binaries:
-
-- **Windows**: Portable ZIP or Inno Setup installer
-- **Linux**: tar.gz, AppImage, or .deb package
-- **macOS**: DMG (unsigned; right-click → Open to bypass Gatekeeper)
-
-### From Source
-
-```bash
-# Clone the repository
-git clone https://github.com/AvaDM-org/AvaDM.git
-cd AvaDM
-
-# Build and run the desktop UI
-dotnet run --project src/AvaDM.UI
-
-# Or the lightweight console interface
-dotnet run --project src/AvaDM.Console
-```
-
-**Requirements:**
-- .NET 10.0 SDK or later
-- On Linux: GTK 3 development libraries (for Avalonia)
-
-## Project Structure
-
-- **`src/AvaDM.Core`** — Core download engine and SQLite persistence layer
-- **`src/AvaDM.UI`** — Avalonia-based desktop application (primary user-facing interface)
-- **`src/AvaDM.Console`** — Lightweight Terminal.Gui console harness for headless operation and testing
-- **`test/AvaDM.Core.Tests`** — xUnit test suite for the download engine
-
-## Architecture Highlights
-
-### Download Engine
-
-AvaDM's core (`Downloader.cs`) uses modern .NET patterns for efficient concurrent I/O:
-
-1. **Smart Headers** — Sends `HEAD` requests to detect server capabilities and content length
-2. **Parallel Chunks** — For range-capable servers, splits files into concurrent byte ranges with a shared speed limiter
-3. **Pre-Allocation** — Writes directly to a `.avadm` working file using `File.OpenHandle` and `RandomAccess.WriteAsync` to avoid stream synchronization overhead
-4. **Graceful Fallback** — Single-stream downloads for non-compliant servers
-5. **Resilience** — Polly-based retry pipeline with exponential backoff for transient errors
-
-### Persistence
-
-- SQLite stores one record per `(URL, destination path)` in the platform data directory
-- A binary footer in the `.avadm` file tracks chunk ranges, statuses, and byte counts
-- Checkpoints occur every 5 seconds and on shutdown for safety
-- Resumption is conflict-aware: stale or mismatched data triggers a safe fresh start
-
-### Desktop UI (Avalonia)
-
-- **Downloads Page** — Live progress per download and per chunk, with pause/resume/cancel controls, a concurrency-limited queue, and scheduled downloads
-- **Settings Page** — Configure download directory, chunk count, max concurrent downloads, retries, speed limits, and UI preferences
-- **Tray Integration** — Quick access to active downloads and window control
-- **Auto-Update** — Check and apply updates with automatic restart
-- **Dark/Light Themes** — Seamless theme support
+- **Windows** — Portable ZIP, or an installer if you'd rather AvaDM set itself up for you
+- **Linux** — tar.gz, AppImage, or a .deb package, whichever fits how you install software
+- **macOS** — DMG. It isn't signed yet, so the first time you open it, right-click the app and choose "Open" to let it run
 
 ## Settings
 
@@ -93,75 +39,19 @@ Everything below can be changed from the Settings page in the app:
 
 Appearance (light/dark), minimize-to-tray, and autostart preferences are also saved automatically.
 
-## Console Interface
+## Getting Help
 
-For headless or scriptable use, the Terminal.Gui console harness supports:
-
-```
-start <url> [destPath] [chunkCount] [--resume|--overwrite|--rename <path>]
-pause <id>
-resume <id>
-cancel <id>
-speed <id> <bytesPerSec|off>
-status [id]
-setpath <dir>
-quit
-```
-
-## Building Releases
-
-Releases are built and published via GitHub Actions on version tags:
-
-```bash
-git tag vX.Y.Z
-git push origin vX.Y.Z
-```
-
-The workflow builds Windows, Linux, and macOS artifacts in parallel:
-
-- **Windows** — Self-contained zip and Inno Setup installer
-- **Linux** — Portable tar.gz, AppImage, and .deb
-- **macOS** — DMG with `.app` bundle for both x64 and ARM64
-
-All artifacts are verified against `SHA256SUMS.txt` before in-place updates.
-
-## Development
-
-### Running Tests
-
-```bash
-dotnet test
-```
-
-### Code Style
-
-Follow standard C# conventions. The codebase uses:
-- `async`/`await` for I/O-bound work
-- MVVM (CommunityToolkit.Mvvm) for the UI layer
-- Immutable event data and defensive copying
-
-### Key Entry Points
-
-- **UI**: `src/AvaDM.UI/App.axaml.cs` — Object graph wiring
-- **Console**: `src/AvaDM.Console/Program.cs` — Terminal.Gui setup
-- **Core**: `src/AvaDM.Core/DownloadManager.cs` — Orchestration
-- **Transfer**: `src/AvaDM.Core/Downloader.cs` — HTTP and chunk logic
-
-For detailed architecture, see [`docs/AvaDM-project-description.md`](docs/AvaDM-project-description.md).
+- **Found a bug?** [Open an issue](https://github.com/AvaDM-org/AvaDM/issues) — AvaDM can pre-fill most of the details for you if it crashes
+- **Have an idea or a question?** [Start a discussion](https://github.com/AvaDM-org/AvaDM/discussions)
+- **Need the logs for a bug report?** Settings > Log Folder
 
 ## Contributing
 
-Contributions are welcome! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines on opening issues, submitting pull requests, and setting up your development environment.
+Want to help build AvaDM? See [CONTRIBUTING.md](CONTRIBUTING.md) for how to set up a development environment, the codebase layout, and how the project's pull requests and releases work.
 
 ## License
 
 AvaDM is open source and available under the [MIT License](LICENSE).
-
-## Support
-
-- **Report Bugs** — [GitHub Issues](https://github.com/AvaDM-org/AvaDM/issues)
-- **Discuss Features** — [GitHub Discussions](https://github.com/AvaDM-org/AvaDM/discussions)
-- **View Logs** — Settings > Log Folder (captures full Serilog output)
 
 ---
 

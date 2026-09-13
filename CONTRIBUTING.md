@@ -168,16 +168,61 @@ Feedback is constructive; please don't take suggestions personally. We're all wo
 
 ## Project Structure
 
-Understanding the codebase:
+- **`src/AvaDM.Core`** — the download engine and SQLite persistence layer, UI-agnostic
+  - `Downloader.cs` — HTTP transfer engine; handles chunking, ranges, retries
+  - `DownloadManager.cs` — orchestration layer; manages SQLite, active handles, conflict resolution
+  - `DownloadHandle.cs` — public API; exposes state, events, and controls to UI/console
+  - `DownloadScheduler.cs` — arms and fires scheduled downloads
+- **`src/AvaDM.UI`** — the Avalonia desktop app, the primary user-facing interface
+  - `MainWindow.axaml.cs` — main window; swaps between the Downloads and Settings page view models
+  - `ViewModels/DownloadListViewModel.cs` — downloads list logic
+  - `Services/` — tray integration, autostart, update checking, crash reporting
+- **`src/AvaDM.Console`** — a Terminal.Gui harness for exercising the engine directly without the full UI; see [Console Harness](#console-harness) below
+- **`test/AvaDM.Core.Tests`** — xUnit tests for the download engine
+- **`test/AvaDM.UI.Tests`** — xUnit tests for UI view-model logic
 
-- **`src/AvaDM.Core/Downloader.cs`** — HTTP transfer engine; handles chunking, ranges, retries
-- **`src/AvaDM.Core/DownloadManager.cs`** — Orchestration layer; manages SQLite, active handles, conflict resolution
-- **`src/AvaDM.Core/DownloadHandle.cs`** — Public API; exposes state, events, and controls to UI/console
-- **`src/AvaDM.UI/MainWindow.xaml.cs`** — Avalonia main window; coordinates view models
-- **`src/AvaDM.UI/ViewModels/DownloadListViewModel.cs`** — Downloads list logic
-- **`src/AvaDM.UI/Services/`** — Tray integration, autostart, update checking, crash reporting
+For historical design background, see [`docs/AvaDM-project-description.md`](docs/AvaDM-project-description.md) (predates most of the current engine and UI, so treat it as background rather than a current reference).
 
-For more details, see [`docs/AvaDM-project-description.md`](docs/AvaDM-project-description.md).
+## Architecture Overview
+
+### Download Engine
+
+`Downloader.cs` uses modern .NET patterns for efficient concurrent I/O:
+
+1. **Smart Headers** — Sends a `HEAD` request to detect server capabilities and content length
+2. **Parallel Chunks** — For range-capable servers, splits the file into concurrent byte ranges with a shared speed limiter
+3. **Pre-Allocation** — Writes directly to a `.avadm` working file using `File.OpenHandle` and `RandomAccess.WriteAsync`, avoiding shared-stream synchronization overhead
+4. **Graceful Fallback** — Falls back to a single-stream download for servers that don't support ranges (not resumable)
+5. **Resilience** — A Polly-based retry pipeline with exponential backoff and jitter handles transient errors, using stall-based timeouts rather than a flat attempt-duration cap
+
+### Persistence
+
+- SQLite stores one record per `(URL, destination path)` in the platform's app-data directory
+- A binary footer in the `.avadm` file tracks chunk ranges, statuses, and byte counts, checkpointed roughly every 5 seconds and once more when a run stops
+- Resumption is conflict-aware: stale, corrupt, or mismatched data triggers a safe fresh start rather than an exception
+
+### Desktop UI (Avalonia)
+
+- **Downloads Page** — Live progress per download and per chunk, pause/resume/cancel controls, a concurrency-limited queue, and scheduled downloads
+- **Settings Page** — Download directory, chunk count, max concurrent downloads, retries, speed limits, and UI preferences
+- **Tray Integration** — Quick access to active downloads and window control
+- **Auto-Update** — Checks for and applies updates, with automatic restart
+- **Dark/Light Themes** — Full theme support
+
+### Console Harness
+
+`src/AvaDM.Console` is a Terminal.Gui app for driving the engine directly during development, predating the Avalonia UI:
+
+```
+start <url> [destPath] [chunkCount] [--resume|--overwrite|--rename <path>]
+pause <id>
+resume <id>
+cancel <id>
+speed <id> <bytesPerSec|off>
+status [id]
+setpath <dir>
+quit
+```
 
 ## Testing Guidelines
 
@@ -274,7 +319,13 @@ git tag vX.Y.Z
 git push origin vX.Y.Z
 ```
 
-GitHub Actions builds all platforms, generates checksums, and publishes a draft release. A maintainer reviews and clicks "Publish" to make it live.
+GitHub Actions builds all platforms in parallel, generates `SHA256SUMS.txt` over every artifact (which `UpdateService` later checks before applying a self-update), and publishes a **draft** release:
+
+- **Windows** — self-contained portable zip and an Inno Setup installer
+- **Linux** — portable tar.gz, AppImage, and .deb
+- **macOS** — DMG with a `.app` bundle, built separately for x64 and ARM64
+
+A maintainer reviews the draft and clicks "Publish" to make it live.
 
 ## Getting Help
 
