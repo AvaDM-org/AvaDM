@@ -4,6 +4,7 @@ using System.Net;
 using System.Net.Sockets;
 using System.Text;
 using AvaDM.Core;
+using Microsoft.Extensions.Time.Testing;
 using Xunit;
 
 namespace AvaDM.Core.Tests;
@@ -666,6 +667,164 @@ public sealed class DownloadManagerTests : IDisposable
     }
 
     [Fact]
+    public async Task ScheduleDownloadAsync_PersistsScheduledRowWithNoHandle()
+    {
+        using var client = CreateHttpClient();
+        var timeProvider = new FakeTimeProvider(DateTimeOffset.UtcNow);
+        var manager = CreateManager(client, timeProvider: timeProvider);
+        var dueUtc = timeProvider.GetUtcNow().UtcDateTime.AddHours(1);
+
+        var result = await manager.ScheduleDownloadAsync(
+            new Uri("http://127.0.0.1/never.bin"), Path.Combine(_tempDirectory, "scheduled.bin"), dueUtc);
+
+        Assert.True(result.Success);
+        Assert.NotNull(result.Id);
+        Assert.Null(result.Handle);
+        Assert.Null(manager.GetActiveHandle(result.Id!.Value));
+
+        var record = await manager.GetDownloadAsync(result.Id!.Value);
+        Assert.Equal(DownloadState.Scheduled, record!.State);
+        Assert.Equal(dueUtc, record.ScheduledStartAtUtc);
+    }
+
+    [Fact]
+    public async Task ScheduledDownload_WhenDue_PromotesToQueuedAndStartsIfSlotFree()
+    {
+        var payload = CreatePayload(4 * 1024);
+        await using var server = await LocalHttpServer.StartAsync(payload, holdBody: false);
+        using var client = CreateHttpClient();
+        var timeProvider = new FakeTimeProvider(DateTimeOffset.UtcNow);
+        var manager = CreateManager(client, timeProvider: timeProvider);
+        var dueUtc = timeProvider.GetUtcNow().UtcDateTime.AddMinutes(5);
+
+        var scheduled = await manager.ScheduleDownloadAsync(server.Uri, Path.Combine(_tempDirectory, "due.bin"), dueUtc);
+        Assert.True(scheduled.Success);
+
+        timeProvider.Advance(TimeSpan.FromMinutes(5));
+
+        var record = await PollUntilStateAsync(manager, scheduled.Id!.Value, DownloadState.Completed);
+        Assert.Equal(DownloadState.Completed, record.State);
+    }
+
+    [Fact]
+    public async Task ScheduledDownload_WhenDue_QueuesInsteadOfStartingIfNoSlotFree()
+    {
+        var payload = CreatePayload(64 * 1024);
+        await using var occupying = await LocalHttpServer.StartAsync(payload, holdBody: true);
+        await using var server = await LocalHttpServer.StartAsync(payload, holdBody: true);
+        using var client = CreateHttpClient();
+        var timeProvider = new FakeTimeProvider(DateTimeOffset.UtcNow);
+        var manager = CreateManager(client, maxConcurrentDownloads: 1, timeProvider: timeProvider);
+
+        var occupant = await manager.AddDownloadAsync(occupying.Uri, Path.Combine(_tempDirectory, "occupant.bin"));
+        Assert.NotNull(occupant.Handle);
+        await occupying.GetHeadersSent;
+
+        var dueUtc = timeProvider.GetUtcNow().UtcDateTime.AddMinutes(5);
+        var scheduled = await manager.ScheduleDownloadAsync(server.Uri, Path.Combine(_tempDirectory, "queued.bin"), dueUtc);
+        Assert.True(scheduled.Success);
+
+        timeProvider.Advance(TimeSpan.FromMinutes(5));
+
+        var deadline = DateTime.UtcNow.AddSeconds(5);
+        DownloadRecord? record;
+        while ((record = await manager.GetDownloadAsync(scheduled.Id!.Value))!.State == DownloadState.Scheduled && DateTime.UtcNow < deadline)
+            await Task.Delay(25);
+
+        // Landed as Queued, not started - the concurrency slot was already taken by "occupant".
+        Assert.Equal(DownloadState.Queued, record!.State);
+        Assert.Null(manager.GetActiveHandle(scheduled.Id!.Value));
+        Assert.True(record.QueueOrder > 0); // assigned a real position at due time, not left at 0
+
+        var cleanupOccupant = await manager.CancelDownloadAsync(occupant.Id!.Value);
+        Assert.True(cleanupOccupant.Success);
+        var cleanupScheduled = await manager.CancelDownloadAsync(scheduled.Id!.Value);
+        Assert.True(cleanupScheduled.Success);
+    }
+
+    [Fact]
+    public async Task CancelScheduledDownloadAsync_RemovesTheRow()
+    {
+        using var client = CreateHttpClient();
+        var timeProvider = new FakeTimeProvider(DateTimeOffset.UtcNow);
+        var manager = CreateManager(client, timeProvider: timeProvider);
+        var dueUtc = timeProvider.GetUtcNow().UtcDateTime.AddMinutes(5);
+
+        var scheduled = await manager.ScheduleDownloadAsync(
+            new Uri("http://127.0.0.1/never.bin"), Path.Combine(_tempDirectory, "cancel-me.bin"), dueUtc);
+        Assert.True(scheduled.Success);
+
+        var cancelled = await manager.CancelScheduledDownloadAsync(scheduled.Id!.Value);
+
+        Assert.True(cancelled);
+        Assert.Null(await manager.GetDownloadAsync(scheduled.Id!.Value));
+    }
+
+    [Fact]
+    public async Task CancelScheduledDownloadAsync_NonScheduledRow_IsANoOp()
+    {
+        var payload = CreatePayload(4 * 1024);
+        await using var server = await LocalHttpServer.StartAsync(payload, holdBody: false);
+        using var client = CreateHttpClient();
+        var manager = CreateManager(client);
+
+        var added = await manager.AddDownloadAsync(server.Uri, Path.Combine(_tempDirectory, "running.bin"));
+        Assert.NotNull(added.Handle); // starts immediately - not Scheduled
+
+        var cancelled = await manager.CancelScheduledDownloadAsync(added.Id!.Value);
+
+        Assert.False(cancelled);
+        Assert.NotNull(await manager.GetDownloadAsync(added.Id!.Value));
+    }
+
+    [Fact]
+    public async Task StartupRehydration_ArmsPersistedScheduledRow()
+    {
+        var payload = CreatePayload(4 * 1024);
+        await using var server = await LocalHttpServer.StartAsync(payload, holdBody: false);
+        var timeProvider = new FakeTimeProvider(DateTimeOffset.UtcNow);
+        var dueUtc = timeProvider.GetUtcNow().UtcDateTime.AddMinutes(5);
+
+        var id = Guid.NewGuid();
+        var repository = new DownloadRepository(DatabasePath);
+        await repository.InitializeAsync();
+        await repository.InsertScheduledAsync(id, server.Uri.AbsoluteUri, Path.Combine(_tempDirectory, "rehydrated.bin"), dueUtc);
+
+        using var client = CreateHttpClient();
+        var manager = CreateManager(client, timeProvider: timeProvider);
+
+        // Any call is enough to trigger EnsureInitializedAsync's one-time startup rehydration.
+        await manager.GetAllDownloadsAsync();
+
+        timeProvider.Advance(TimeSpan.FromMinutes(5));
+
+        var record = await PollUntilStateAsync(manager, id, DownloadState.Completed);
+        Assert.Equal(DownloadState.Completed, record.State);
+    }
+
+    [Fact]
+    public async Task StartupRehydration_PastDueScheduledRow_FiresImmediately()
+    {
+        var payload = CreatePayload(4 * 1024);
+        await using var server = await LocalHttpServer.StartAsync(payload, holdBody: false);
+        var timeProvider = new FakeTimeProvider(DateTimeOffset.UtcNow);
+        var pastDueUtc = timeProvider.GetUtcNow().UtcDateTime.AddMinutes(-5);
+
+        var id = Guid.NewGuid();
+        var repository = new DownloadRepository(DatabasePath);
+        await repository.InitializeAsync();
+        await repository.InsertScheduledAsync(id, server.Uri.AbsoluteUri, Path.Combine(_tempDirectory, "past-due.bin"), pastDueUtc);
+
+        using var client = CreateHttpClient();
+        var manager = CreateManager(client, timeProvider: timeProvider);
+
+        await manager.GetAllDownloadsAsync();
+
+        var record = await PollUntilStateAsync(manager, id, DownloadState.Completed);
+        Assert.Equal(DownloadState.Completed, record.State);
+    }
+
+    [Fact]
     public async Task MoveQueuedDownloadUpAsync_ChangesAdmissionOrder()
     {
         var payload = CreatePayload(64 * 1024);
@@ -787,17 +946,21 @@ public sealed class DownloadManagerTests : IDisposable
         }
     }
 
-    private DownloadManager CreateManager(HttpClient client, int? maxConcurrentDownloads = null, bool autoResumeDownloadsOnStartup = false) =>
-        new(client, new DownloadSettings
-        {
-            RepositoryPath = DatabasePath,
-            DefaultDownloadDirectory = _tempDirectory,
-            DefaultMaxRetryAttempts = 1,
-            DefaultRetryBaseDelay = TimeSpan.Zero,
-            DefaultInactivityTimeout = TimeSpan.FromSeconds(5),
-            DefaultMaxConcurrentDownloads = maxConcurrentDownloads ?? new DownloadSettings().DefaultMaxConcurrentDownloads,
-            AutoResumeDownloadsOnStartup = autoResumeDownloadsOnStartup,
-        });
+    private DownloadManager CreateManager(
+        HttpClient client, int? maxConcurrentDownloads = null, bool autoResumeDownloadsOnStartup = false, TimeProvider? timeProvider = null) =>
+        new(
+            client,
+            new DownloadSettings
+            {
+                RepositoryPath = DatabasePath,
+                DefaultDownloadDirectory = _tempDirectory,
+                DefaultMaxRetryAttempts = 1,
+                DefaultRetryBaseDelay = TimeSpan.Zero,
+                DefaultInactivityTimeout = TimeSpan.FromSeconds(5),
+                DefaultMaxConcurrentDownloads = maxConcurrentDownloads ?? new DownloadSettings().DefaultMaxConcurrentDownloads,
+                AutoResumeDownloadsOnStartup = autoResumeDownloadsOnStartup,
+            },
+            timeProvider);
 
     private HttpClient CreateHttpClient() => new() { Timeout = Timeout.InfiniteTimeSpan };
 
