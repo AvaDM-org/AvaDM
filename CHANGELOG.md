@@ -9,7 +9,7 @@ Each released version below has a matching `vX.Y.Z` git tag. `.github/workflows/
 the section for the tag it is building and uses it as the GitHub Release notes, so **a release will
 fail fast if its version has no section here**. Add the entry before pushing the tag.
 
-## [2.2.0] - Unreleased
+## [3.0.0] - 2026-09-14
 
 ### Added
 
