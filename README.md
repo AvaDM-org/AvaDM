@@ -125,16 +125,6 @@ The workflow builds Windows, Linux, and macOS artifacts in parallel:
 
 All artifacts are verified against `SHA256SUMS.txt` before in-place updates.
 
-## Roadmap
-
-Planned features (not yet implemented):
-
-- Dynamic chunk tuning and retry-with-resume
-- ETag/Last-Modified revalidation
-- Richer protocol support (FTP, magnet, torrent)
-- Code signing (Windows executables and macOS notarization)
-- End-to-end test coverage for network failures and disk errors
-
 ## Development
 
 ### Running Tests
