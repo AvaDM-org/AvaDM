@@ -9,7 +9,27 @@ public enum DownloadState
     Paused,
     Completed,
     Failed,
-    Cancelled
+    Cancelled,
+
+    /// <summary>Waiting for a free concurrency slot - see <see cref="DownloadManager"/>'s queue
+    /// admission logic. Added last, not alphabetically/logically placed above, because
+    /// <see cref="DownloadRepository"/> persists this enum as a raw integer ordinal; inserting a
+    /// value anywhere but the end would silently reinterpret every already-stored row's state.</summary>
+    Queued,
+
+    /// <summary>Queued, but held back from admission by the user - the queued equivalent of
+    /// pausing a running download. No handle exists (nothing has started transferring), so unlike
+    /// <see cref="Paused"/> there's no live transfer to suspend; this is a plain state flip. Kept
+    /// distinct from <see cref="Paused"/> rather than reusing it, since <see cref="Paused"/>
+    /// always implies a handle did/does exist - reusing it here would misclassify this as the UI's
+    /// derived "Interrupted" status (a Paused row with no handle normally means a process restart
+    /// orphaned it, not that the user deliberately held it back). Excluded from
+    /// <see cref="DownloadManager.AdmitQueuedDownloadsAsync"/>'s admission scan by construction (that scan only
+    /// looks at <see cref="Queued"/> rows), which is what makes a paused-while-queued download
+    /// skipped when its turn comes, without needing to touch its position in the queue at all -
+    /// resuming it just flips it back to <see cref="Queued"/>, at the same <c>QueueOrder</c> it
+    /// already had.</summary>
+    QueuedPaused
 }
 
 public record DownloadOptions

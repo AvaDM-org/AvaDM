@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Linq;
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
@@ -354,6 +355,427 @@ public sealed class DownloadManagerTests : IDisposable
         Assert.Equal(4, handler.RequestCount);
     }
 
+    [Fact]
+    public async Task AddDownloadAsync_AtConcurrencyLimit_QueuesInsteadOfStarting()
+    {
+        var payload = CreatePayload(64 * 1024);
+        await using var server1 = await LocalHttpServer.StartAsync(payload, holdBody: true);
+        await using var server2 = await LocalHttpServer.StartAsync(payload, holdBody: true);
+        using var client = CreateHttpClient();
+        var manager = CreateManager(client, maxConcurrentDownloads: 1);
+
+        var first = await manager.AddDownloadAsync(server1.Uri, Path.Combine(_tempDirectory, "first.bin"));
+        Assert.True(first.Success);
+        Assert.NotNull(first.Handle);
+        await server1.GetHeadersSent; // confirm it's genuinely occupying the one slot
+
+        var second = await manager.AddDownloadAsync(server2.Uri, Path.Combine(_tempDirectory, "second.bin"));
+        Assert.True(second.Success);
+        Assert.Null(second.Handle);
+        Assert.Null(manager.GetActiveHandle(second.Id!.Value));
+
+        var record = await manager.GetDownloadAsync(second.Id!.Value);
+        Assert.Equal(DownloadState.Queued, record!.State);
+    }
+
+    [Fact]
+    public async Task QueuedDownload_StartsAutomatically_WhenRunningDownloadCompletes()
+    {
+        // Large enough that the drip (8 KB per 10ms, see LocalHttpServer) leaves a comfortable
+        // window to add and assert the second download before the first finishes on its own.
+        var slowPayload = CreatePayload(400 * 1024);
+        var fastPayload = CreatePayload(4 * 1024);
+        await using var server1 = await LocalHttpServer.StartAsync(slowPayload, holdBody: false);
+        await using var server2 = await LocalHttpServer.StartAsync(fastPayload, holdBody: false);
+        using var client = CreateHttpClient();
+        var manager = CreateManager(client, maxConcurrentDownloads: 1);
+
+        var first = await manager.AddDownloadAsync(server1.Uri, Path.Combine(_tempDirectory, "first.bin"));
+        await server1.GetHeadersSent;
+
+        var second = await manager.AddDownloadAsync(server2.Uri, Path.Combine(_tempDirectory, "second.bin"));
+        Assert.Null(second.Handle);
+
+        await first.Handle!.Completion;
+        Assert.Equal(DownloadState.Completed, first.Handle.State);
+
+        // Poll durable repository state, not the transient _activeHandles entry: second's payload
+        // is tiny enough that it can start and finish (removing itself from _activeHandles again)
+        // between two polls, so a handle-presence check can race straight past it.
+        var record = await PollUntilStateAsync(manager, second.Id!.Value, DownloadState.Completed);
+        Assert.Equal(DownloadState.Completed, record.State);
+        Assert.True(File.Exists(Path.Combine(_tempDirectory, "second.bin")));
+    }
+
+    [Fact]
+    public async Task PausingRunningDownload_FreesSlot_ForQueuedDownloadToStart()
+    {
+        var heldPayload = CreatePayload(64 * 1024);
+        var fastPayload = CreatePayload(4 * 1024);
+        await using var server1 = await LocalHttpServer.StartAsync(heldPayload, holdBody: true);
+        await using var server2 = await LocalHttpServer.StartAsync(fastPayload, holdBody: false);
+        using var client = CreateHttpClient();
+        var manager = CreateManager(client, maxConcurrentDownloads: 1);
+
+        var first = await manager.AddDownloadAsync(server1.Uri, Path.Combine(_tempDirectory, "first.bin"));
+        await server1.GetHeadersSent;
+
+        var second = await manager.AddDownloadAsync(server2.Uri, Path.Combine(_tempDirectory, "second.bin"));
+        Assert.Null(second.Handle);
+
+        first.Handle!.Pause();
+
+        var record = await PollUntilStateAsync(manager, second.Id!.Value, DownloadState.Completed);
+        Assert.Equal(DownloadState.Completed, record.State);
+        Assert.True(File.Exists(Path.Combine(_tempDirectory, "second.bin")));
+
+        // Clean up the still-paused, held-open first download rather than leaving it dangling.
+        var cleanup = await manager.CancelDownloadAsync(first.Id!.Value);
+        Assert.True(cleanup.Success);
+    }
+
+    /// <summary>Regression test for a bug found in manual UI testing of #25: pausing A frees its
+    /// slot, B is added and takes it, then the user resumes A from the UI - which used to call
+    /// DownloadHandle.Resume() directly on A's still-live (merely paused) handle, bypassing
+    /// DownloadManager's admission check entirely and leaving both A and B running at once over a
+    /// concurrency limit of 1. DownloadRowViewModel.Resume() no longer has that direct-resume fast
+    /// path - every resume, paused or not, now goes through DownloadManager.ResumeDownloadAsync,
+    /// which is admission-gated exactly like a fresh add.</summary>
+    [Fact]
+    public async Task ResumeDownloadAsync_PausedHandleWhoseSlotWasTakenByAnother_QueuesInsteadOfRunningBoth()
+    {
+        var payload = CreatePayload(64 * 1024);
+        await using var serverA = await LocalHttpServer.StartAsync(payload, holdBody: true);
+        await using var serverB = await LocalHttpServer.StartAsync(payload, holdBody: true);
+        using var client = CreateHttpClient();
+        var manager = CreateManager(client, maxConcurrentDownloads: 1);
+
+        var a = await manager.AddDownloadAsync(serverA.Uri, Path.Combine(_tempDirectory, "a.bin"));
+        await serverA.GetHeadersSent;
+        a.Handle!.Pause();
+
+        var b = await manager.AddDownloadAsync(serverB.Uri, Path.Combine(_tempDirectory, "b.bin"));
+        Assert.NotNull(b.Handle); // admitted immediately - A's pause freed the only slot
+        await serverB.GetHeadersSent;
+
+        var resumed = await manager.ResumeDownloadAsync(a.Id!.Value);
+
+        Assert.True(resumed.Success);
+        Assert.Null(resumed.Handle); // queued, not resumed - the slot is still taken by B
+        Assert.Null(manager.GetActiveHandle(a.Id!.Value));
+        Assert.NotNull(manager.GetActiveHandle(b.Id!.Value)); // B is unaffected, still the only one running
+
+        var recordA = await manager.GetDownloadAsync(a.Id!.Value);
+        Assert.Equal(DownloadState.Queued, recordA!.State);
+
+        var cleanupA = await manager.CancelDownloadAsync(a.Id!.Value);
+        Assert.True(cleanupA.Success);
+        var cleanupB = await manager.CancelDownloadAsync(b.Id!.Value);
+        Assert.True(cleanupB.Success);
+    }
+
+    [Fact]
+    public async Task EnforceConcurrencyLimitAsync_LimitLoweredBelowRunningCount_PausesExcess()
+    {
+        var payload = CreatePayload(64 * 1024);
+        await using var serverA = await LocalHttpServer.StartAsync(payload, holdBody: true);
+        await using var serverB = await LocalHttpServer.StartAsync(payload, holdBody: true);
+        using var client = CreateHttpClient();
+        var settings = new DownloadSettings
+        {
+            RepositoryPath = DatabasePath,
+            DefaultDownloadDirectory = _tempDirectory,
+            DefaultMaxRetryAttempts = 1,
+            DefaultRetryBaseDelay = TimeSpan.Zero,
+            DefaultInactivityTimeout = TimeSpan.FromSeconds(5),
+            DefaultMaxConcurrentDownloads = 2,
+        };
+        var manager = new DownloadManager(client, settings);
+
+        var a = await manager.AddDownloadAsync(serverA.Uri, Path.Combine(_tempDirectory, "a.bin"));
+        var b = await manager.AddDownloadAsync(serverB.Uri, Path.Combine(_tempDirectory, "b.bin"));
+        Assert.NotNull(a.Handle);
+        Assert.NotNull(b.Handle);
+        await serverA.GetHeadersSent;
+        await serverB.GetHeadersSent;
+
+        settings.DefaultMaxConcurrentDownloads = 1;
+        await manager.EnforceConcurrencyLimitAsync();
+
+        // B has the higher QueueOrder (added after A), so it's the one bumped first - re-queued
+        // (not merely paused), so it picks back up on its own once room exists again rather than
+        // needing a manual resume.
+        Assert.NotNull(manager.GetActiveHandle(a.Id!.Value));
+        Assert.Equal(DownloadState.Running, manager.GetActiveHandle(a.Id!.Value)!.State);
+        Assert.Null(manager.GetActiveHandle(b.Id!.Value));
+
+        var bRecord = await manager.GetDownloadAsync(b.Id!.Value);
+        Assert.Equal(DownloadState.Queued, bRecord!.State);
+
+        var cleanupA = await manager.CancelDownloadAsync(a.Id!.Value);
+        Assert.True(cleanupA.Success);
+        var cleanupB = await manager.CancelDownloadAsync(b.Id!.Value);
+        Assert.True(cleanupB.Success);
+    }
+
+    /// <summary>Regression test for a data-corruption bug found in manual testing of #25: two
+    /// live handles ending up registered for the same download id, both writing the same .avadm
+    /// file, eventually leaving the record marked Completed while its actual bytes on disk were
+    /// incomplete/corrupted (and un-resumable, since a Completed record can't be resumed).
+    /// AdmitQueuedDownloadsAsync used to trust the repository's Queued/not-Queued state blindly;
+    /// it now skips any record that already has a live handle in _activeHandles regardless of
+    /// what the (necessarily lagging) repository currently says - see TryStartHandleAsync's doc
+    /// comment for the exact timing race this simulates directly instead of trying to induce.</summary>
+    [Fact]
+    public async Task AdmitQueuedDownloadsAsync_RecordAlreadyHasLiveHandle_DoesNotStartASecondOne()
+    {
+        var payload = CreatePayload(64 * 1024);
+        await using var serverA = await LocalHttpServer.StartAsync(payload, holdBody: true);
+        await using var serverB = await LocalHttpServer.StartAsync(payload, holdBody: true);
+        using var client = CreateHttpClient();
+        var manager = CreateManager(client, maxConcurrentDownloads: 2);
+
+        var a = await manager.AddDownloadAsync(serverA.Uri, Path.Combine(_tempDirectory, "a.bin"));
+        var b = await manager.AddDownloadAsync(serverB.Uri, Path.Combine(_tempDirectory, "b.bin"));
+        Assert.NotNull(a.Handle);
+        Assert.NotNull(b.Handle);
+        await serverA.GetHeadersSent;
+        await serverB.GetHeadersSent;
+
+        b.Handle!.Pause(); // frees B's slot in RunningHandleCount, but its live handle still exists
+
+        // Simulate the repository still (or again) saying Queued for a download that already has
+        // a live handle - exactly the state TryStartHandleAsync's widened lock now prevents from
+        // being observed mid-registration, reproduced directly here instead of via timing.
+        var repository = new DownloadRepository(DatabasePath);
+        await repository.UpdateStateAsync(b.Id!.Value, DownloadState.Queued);
+
+        await manager.AdmitQueuedDownloadsAsync();
+
+        Assert.Same(b.Handle, manager.GetActiveHandle(b.Id!.Value)); // no duplicate handle started
+        Assert.Equal(DownloadState.Paused, manager.GetActiveHandle(b.Id!.Value)!.State); // untouched
+
+        var cleanupA = await manager.CancelDownloadAsync(a.Id!.Value);
+        Assert.True(cleanupA.Success);
+        var cleanupB = await manager.CancelDownloadAsync(b.Id!.Value);
+        Assert.True(cleanupB.Success);
+    }
+
+    /// <summary>Stress-test regression for a second bug found in manual testing of #25: resuming
+    /// a paused download cancels its stale handle internally before persisting the new state, and
+    /// that stale handle's own "I'm Cancelled" write (from its independent finalization
+    /// continuation) could previously land *after* the new state was written, silently reverting
+    /// it - observed as a download the user never cancelled ending up stuck Cancelled after
+    /// repeated pause/resume cycling. DownloadManager now awaits the stale handle's full
+    /// finalization (not just its Completion task) before writing anything new for that id.</summary>
+    [Fact]
+    public async Task RepeatedPauseAndResumeCycling_NeverLeavesADownloadIncorrectlyCancelled()
+    {
+        var payload = CreatePayload(64 * 1024);
+        await using var serverA = await LocalHttpServer.StartAsync(payload, holdBody: true);
+        await using var serverB = await LocalHttpServer.StartAsync(payload, holdBody: true);
+        using var client = CreateHttpClient();
+        var manager = CreateManager(client, maxConcurrentDownloads: 1);
+
+        var a = await manager.AddDownloadAsync(serverA.Uri, Path.Combine(_tempDirectory, "a.bin"));
+        await serverA.GetHeadersSent;
+
+        var b = await manager.AddDownloadAsync(serverB.Uri, Path.Combine(_tempDirectory, "b.bin"));
+        Assert.Null(b.Handle); // queued - A holds the only slot
+
+        for (var i = 0; i < 15; i++)
+        {
+            var aHandle = manager.GetActiveHandle(a.Id!.Value);
+            var bHandle = manager.GetActiveHandle(b.Id!.Value);
+
+            if (aHandle is { State: DownloadState.Running })
+            {
+                aHandle.Pause();
+                Assert.True((await manager.ResumeDownloadAsync(b.Id!.Value)).Success);
+            }
+            else if (bHandle is { State: DownloadState.Running })
+            {
+                bHandle.Pause();
+                Assert.True((await manager.ResumeDownloadAsync(a.Id!.Value)).Success);
+            }
+
+            await Task.Delay(20); // let the admission/finalization chain settle before checking
+
+            var recordA = await manager.GetDownloadAsync(a.Id!.Value);
+            var recordB = await manager.GetDownloadAsync(b.Id!.Value);
+            Assert.NotEqual(DownloadState.Cancelled, recordA!.State);
+            Assert.NotEqual(DownloadState.Cancelled, recordB!.State);
+        }
+
+        var cleanupA = await manager.CancelDownloadAsync(a.Id!.Value);
+        Assert.True(cleanupA.Success);
+        var cleanupB = await manager.CancelDownloadAsync(b.Id!.Value);
+        Assert.True(cleanupB.Success);
+    }
+
+    [Fact]
+    public async Task PauseQueuedDownloadAsync_HeldBackDownloadIsSkippedUntilResumed()
+    {
+        var payload = CreatePayload(64 * 1024);
+        await using var serverA = await LocalHttpServer.StartAsync(payload, holdBody: true);
+        await using var serverB = await LocalHttpServer.StartAsync(payload, holdBody: true);
+        using var client = CreateHttpClient();
+        var manager = CreateManager(client, maxConcurrentDownloads: 1);
+
+        var a = await manager.AddDownloadAsync(serverA.Uri, Path.Combine(_tempDirectory, "a.bin"));
+        await serverA.GetHeadersSent;
+
+        var b = await manager.AddDownloadAsync(serverB.Uri, Path.Combine(_tempDirectory, "b.bin"));
+        Assert.Null(b.Handle); // queued behind A
+
+        var paused = await manager.PauseQueuedDownloadAsync(b.Id!.Value);
+        Assert.True(paused);
+        var recordB = await manager.GetDownloadAsync(b.Id!.Value);
+        Assert.Equal(DownloadState.QueuedPaused, recordB!.State);
+
+        // Free A's slot - B must be skipped (stays QueuedPaused, no handle) since it was held back.
+        var cancelledA = await manager.CancelDownloadAsync(a.Id!.Value);
+        Assert.True(cancelledA.Success);
+        await Task.Delay(100); // give any admission pass a chance to (wrongly) pick B up anyway
+        Assert.Null(manager.GetActiveHandle(b.Id!.Value));
+        recordB = await manager.GetDownloadAsync(b.Id!.Value);
+        Assert.Equal(DownloadState.QueuedPaused, recordB!.State);
+
+        // Resuming flips it back to Queued and it gets admitted now that the slot is free.
+        var resumedB = await manager.ResumeDownloadAsync(b.Id!.Value);
+        Assert.True(resumedB.Success);
+        Assert.NotNull(resumedB.Handle);
+
+        var cleanupB = await manager.CancelDownloadAsync(b.Id!.Value);
+        Assert.True(cleanupB.Success);
+    }
+
+    [Fact]
+    public async Task PauseQueuedDownloadAsync_NonQueuedRow_IsANoOp()
+    {
+        var payload = CreatePayload(4 * 1024);
+        await using var server = await LocalHttpServer.StartAsync(payload, holdBody: false);
+        using var client = CreateHttpClient();
+        var manager = CreateManager(client);
+
+        var added = await manager.AddDownloadAsync(server.Uri, Path.Combine(_tempDirectory, "running.bin"));
+        Assert.NotNull(added.Handle); // starts immediately - not Queued
+
+        var paused = await manager.PauseQueuedDownloadAsync(added.Id!.Value);
+        Assert.False(paused);
+    }
+
+    [Fact]
+    public async Task MoveQueuedDownloadUpAsync_ChangesAdmissionOrder()
+    {
+        var payload = CreatePayload(64 * 1024);
+        // B and C hold their bodies open once admitted, so whichever one wins the single slot
+        // stays observably Running rather than racing straight through to completion - the same
+        // reason the queuedCount/QueuedDownload_StartsAutomatically tests poll repository state
+        // instead of a live handle.
+        await using var occupying = await LocalHttpServer.StartAsync(payload, holdBody: true);
+        await using var serverB = await LocalHttpServer.StartAsync(payload, holdBody: true);
+        await using var serverC = await LocalHttpServer.StartAsync(payload, holdBody: true);
+        using var client = CreateHttpClient();
+        var manager = CreateManager(client, maxConcurrentDownloads: 1);
+
+        var occupant = await manager.AddDownloadAsync(occupying.Uri, Path.Combine(_tempDirectory, "occupant.bin"));
+        await occupying.GetHeadersSent;
+
+        var queuedB = await manager.AddDownloadAsync(serverB.Uri, Path.Combine(_tempDirectory, "b.bin"));
+        var queuedC = await manager.AddDownloadAsync(serverC.Uri, Path.Combine(_tempDirectory, "c.bin"));
+        Assert.Null(queuedB.Handle);
+        Assert.Null(queuedC.Handle);
+
+        // C was added after B, so it starts behind B by default - move it to the front.
+        var moved = await manager.MoveQueuedDownloadUpAsync(queuedC.Id!.Value);
+        Assert.True(moved);
+
+        var cancelled = await manager.CancelDownloadAsync(occupant.Id!.Value);
+        Assert.True(cancelled.Success);
+
+        var deadline = DateTime.UtcNow.AddSeconds(5);
+        while (manager.GetActiveHandle(queuedC.Id!.Value) is null && DateTime.UtcNow < deadline)
+            await Task.Delay(25);
+
+        Assert.NotNull(manager.GetActiveHandle(queuedC.Id!.Value));
+        Assert.Null(manager.GetActiveHandle(queuedB.Id!.Value));
+
+        var cleanupC = await manager.CancelDownloadAsync(queuedC.Id!.Value);
+        Assert.True(cleanupC.Success);
+    }
+
+    [Fact]
+    public async Task ResumeAllInterruptedAsync_AdmitsOnlyUpToTheConcurrencyLimit()
+    {
+        var payload = CreatePayload(64 * 1024);
+        await using var server1 = await LocalHttpServer.StartAsync(payload, holdBody: true);
+        await using var server2 = await LocalHttpServer.StartAsync(payload, holdBody: true);
+        await using var server3 = await LocalHttpServer.StartAsync(payload, holdBody: true);
+
+        // Seed three rows as if left "Running" by a previous process - no live handle exists for
+        // any of them yet, matching what the UI shows as "Interrupted".
+        var id1 = Guid.NewGuid();
+        var id2 = Guid.NewGuid();
+        var id3 = Guid.NewGuid();
+        var repository = new DownloadRepository(DatabasePath);
+        await repository.InitializeAsync();
+        await repository.InsertAsync(id1, server1.Uri.AbsoluteUri, Path.Combine(_tempDirectory, "r1.bin"), DownloadState.Running, 1);
+        await repository.InsertAsync(id2, server2.Uri.AbsoluteUri, Path.Combine(_tempDirectory, "r2.bin"), DownloadState.Running, 1);
+        await repository.InsertAsync(id3, server3.Uri.AbsoluteUri, Path.Combine(_tempDirectory, "r3.bin"), DownloadState.Running, 1);
+
+        using var client = CreateHttpClient();
+        var manager = CreateManager(client, maxConcurrentDownloads: 2);
+
+        await manager.ResumeAllInterruptedAsync();
+
+        var handles = new[] { id1, id2, id3 }.Select(manager.GetActiveHandle).ToList();
+        Assert.Equal(2, handles.Count(h => h is not null));
+        Assert.Equal(1, handles.Count(h => h is null));
+    }
+
+    [Fact]
+    public async Task AutoResumeDownloadsOnStartup_True_ResumesInterruptedRowOnFirstUse()
+    {
+        var payload = CreatePayload(4 * 1024);
+        await using var server = await LocalHttpServer.StartAsync(payload, holdBody: false);
+        var id = Guid.NewGuid();
+        var repository = new DownloadRepository(DatabasePath);
+        await repository.InitializeAsync();
+        await repository.InsertAsync(id, server.Uri.AbsoluteUri, Path.Combine(_tempDirectory, "startup.bin"), DownloadState.Running, 1);
+
+        using var client = CreateHttpClient();
+        var manager = CreateManager(client, autoResumeDownloadsOnStartup: true);
+
+        // Any call is enough to trigger EnsureInitializedAsync's one-time startup rehydration.
+        await manager.GetAllDownloadsAsync();
+
+        var record = await PollUntilStateAsync(manager, id, DownloadState.Completed);
+        Assert.Equal(DownloadState.Completed, record.State);
+        Assert.True(File.Exists(Path.Combine(_tempDirectory, "startup.bin")));
+    }
+
+    [Fact]
+    public async Task AutoResumeDownloadsOnStartup_False_LeavesInterruptedRowUntouched()
+    {
+        var payload = CreatePayload(4 * 1024);
+        await using var server = await LocalHttpServer.StartAsync(payload, holdBody: false);
+        var id = Guid.NewGuid();
+        var repository = new DownloadRepository(DatabasePath);
+        await repository.InitializeAsync();
+        await repository.InsertAsync(id, server.Uri.AbsoluteUri, Path.Combine(_tempDirectory, "no-startup.bin"), DownloadState.Running, 1);
+
+        using var client = CreateHttpClient();
+        var manager = CreateManager(client); // AutoResumeDownloadsOnStartup defaults to false
+
+        await manager.GetAllDownloadsAsync();
+        await Task.Delay(200); // give a wrongly-auto-resuming implementation a chance to prove itself
+
+        Assert.Null(manager.GetActiveHandle(id));
+        var record = await manager.GetDownloadAsync(id);
+        Assert.Equal(DownloadState.Running, record!.State); // untouched, not flipped to Queued either
+    }
+
     public void Dispose()
     {
         try
@@ -365,17 +787,32 @@ public sealed class DownloadManagerTests : IDisposable
         }
     }
 
-    private DownloadManager CreateManager(HttpClient client) =>
+    private DownloadManager CreateManager(HttpClient client, int? maxConcurrentDownloads = null, bool autoResumeDownloadsOnStartup = false) =>
         new(client, new DownloadSettings
         {
             RepositoryPath = DatabasePath,
             DefaultDownloadDirectory = _tempDirectory,
             DefaultMaxRetryAttempts = 1,
             DefaultRetryBaseDelay = TimeSpan.Zero,
-            DefaultInactivityTimeout = TimeSpan.FromSeconds(5)
+            DefaultInactivityTimeout = TimeSpan.FromSeconds(5),
+            DefaultMaxConcurrentDownloads = maxConcurrentDownloads ?? new DownloadSettings().DefaultMaxConcurrentDownloads,
+            AutoResumeDownloadsOnStartup = autoResumeDownloadsOnStartup,
         });
 
     private HttpClient CreateHttpClient() => new() { Timeout = Timeout.InfiniteTimeSpan };
+
+    /// <summary>Polls the repository (not the transient <see cref="DownloadManager.GetActiveHandle"/>
+    /// map) until a download reaches <paramref name="expected"/> or a 5-second deadline passes -
+    /// a small/fast download can start and finish between two polls, taking itself back out of
+    /// the live-handle map before a check ever catches it there.</summary>
+    private static async Task<DownloadRecord> PollUntilStateAsync(DownloadManager manager, Guid id, DownloadState expected)
+    {
+        var deadline = DateTime.UtcNow.AddSeconds(5);
+        DownloadRecord? record;
+        while ((record = await manager.GetDownloadAsync(id))!.State != expected && DateTime.UtcNow < deadline)
+            await Task.Delay(25);
+        return record!;
+    }
 
     private async Task<DownloadRepository> SeedRecordAsync(
         Guid id,
@@ -465,6 +902,21 @@ public sealed class DownloadManagerTests : IDisposable
             {
             }
             catch (ObjectDisposedException) when (_stop.IsCancellationRequested)
+            {
+            }
+            // _listener.Stop() (called from DisposeAsync) can race a pending
+            // AcceptTcpClientAsync call: depending on exactly when the underlying socket is torn
+            // down, the pending accept can observe it as "not listening" or a raw socket error
+            // instead of the cleaner OperationCanceledException/ObjectDisposedException above -
+            // all four are the same benign "we're shutting down" outcome, just surfaced
+            // differently depending on timing. More test classes now run more concurrent
+            // LocalHttpServer instances in parallel (see #25's queue tests), which made this
+            // pre-existing shutdown race in the test harness itself show up more often - nothing
+            // to do with the production code under test.
+            catch (InvalidOperationException) when (_stop.IsCancellationRequested)
+            {
+            }
+            catch (SocketException) when (_stop.IsCancellationRequested)
             {
             }
         }

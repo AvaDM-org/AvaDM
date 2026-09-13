@@ -6,6 +6,11 @@ namespace AvaDM.Core;
 /// <summary>Simple/aggregate metadata for one download, as persisted in the SQLite index. Never
 /// carries per-chunk progress - that lives only in the <c>.avadm</c> footer while a download is
 /// incomplete (see <see cref="DownloadFooter"/>).</summary>
+/// <summary><paramref name="QueueOrder"/> is the download's position in the queue: assigned once,
+/// when the row is first inserted, as one past the current maximum - and left untouched
+/// afterward except by an explicit user reorder (<see cref="DownloadRepository.UpdateQueueOrderAsync"/>).
+/// It is not recomputed on resume/restart, so a download's place in the queue survives an app
+/// restart exactly as it was.</summary>
 public sealed record DownloadRecord(
     Guid Id,
     string Uri,
@@ -14,7 +19,8 @@ public sealed record DownloadRecord(
     long TotalBytes,
     long BytesDownloaded,
     DateTime CreatedAt,
-    DateTime? LastModifiedAt);
+    DateTime? LastModifiedAt,
+    int QueueOrder);
 
 public sealed record ConflictCheckResult(bool HasConflict, DownloadRecord? ExistingRecord);
 
@@ -58,6 +64,28 @@ public sealed class DownloadRepository(string dbPath)
             """,
             cancellationToken: ct);
         await connection.ExecuteAsync(command);
+        await MigrateQueueOrderColumnAsync(connection, ct);
+    }
+
+    /// <summary>Adds the <c>QueueOrder</c> column to a database created before the download queue
+    /// feature existed. Existing rows are backfilled in <c>CreatedAt</c> order so pre-existing
+    /// downloads get a stable, sensible starting position rather than all defaulting to 0.</summary>
+    private static async Task MigrateQueueOrderColumnAsync(SqliteConnection connection, CancellationToken ct)
+    {
+        var columns = await connection.QueryAsync<string>(
+            new CommandDefinition("SELECT name FROM pragma_table_info('Downloads')", cancellationToken: ct));
+        if (columns.Contains("QueueOrder"))
+            return;
+
+        await connection.ExecuteAsync(new CommandDefinition(
+            """
+            ALTER TABLE Downloads ADD COLUMN QueueOrder INTEGER NOT NULL DEFAULT 0;
+
+            UPDATE Downloads SET QueueOrder = (
+                SELECT COUNT(*) FROM Downloads AS earlier WHERE earlier.CreatedAt <= Downloads.CreatedAt
+            );
+            """,
+            cancellationToken: ct));
     }
 
     public async Task<ConflictCheckResult> CheckConflictAsync(string uri, string destinationPath)
@@ -72,14 +100,19 @@ public sealed class DownloadRepository(string dbPath)
             : new ConflictCheckResult(true, existing.ToRecord());
     }
 
+    /// <summary>Inserts a new row, assigning it the next <c>QueueOrder</c> (one past the current
+    /// maximum) in the same statement as the insert itself - so two inserts on the same
+    /// connection can never race each other into computing the same "next" value.</summary>
     public async Task<DownloadRecord> InsertAsync(Guid id, string uri, string destinationPath, DownloadState state, long totalBytes)
     {
         var createdAt = DateTime.UtcNow;
         using var connection = OpenConnection();
-        await connection.ExecuteAsync(
+        var queueOrder = await connection.QuerySingleAsync<int>(
             """
-            INSERT INTO Downloads (Id, Uri, DestinationPath, State, TotalBytes, BytesDownloaded, CreatedAt, LastModifiedAt)
-            VALUES (@Id, @Uri, @DestinationPath, @State, @TotalBytes, 0, @CreatedAt, NULL)
+            INSERT INTO Downloads (Id, Uri, DestinationPath, State, TotalBytes, BytesDownloaded, CreatedAt, LastModifiedAt, QueueOrder)
+            VALUES (@Id, @Uri, @DestinationPath, @State, @TotalBytes, 0, @CreatedAt, NULL,
+                (SELECT COALESCE(MAX(QueueOrder), 0) + 1 FROM Downloads))
+            RETURNING QueueOrder
             """,
             new
             {
@@ -91,16 +124,17 @@ public sealed class DownloadRepository(string dbPath)
                 CreatedAt = createdAt.ToString("O"),
             });
 
-        return new DownloadRecord(id, uri, destinationPath, state, totalBytes, 0, createdAt, null);
+        return new DownloadRecord(id, uri, destinationPath, state, totalBytes, 0, createdAt, null, queueOrder);
     }
 
-    /// <summary>Re-arms an existing row for a resume/overwrite restart: same <paramref name="id"/>
-    /// and <c>CreatedAt</c> as before (the row's identity and history don't change just because
-    /// the process restarted), but state/size/progress reset to reflect the fresh attempt.
-    /// Used instead of <see cref="InsertAsync"/> when <see cref="DownloadManager.AddDownloadAsync"/>
-    /// resolves a conflict via Resume or Overwrite, since the conflicting row (same Uri +
-    /// DestinationPath) is still present and a second INSERT would trip the UNIQUE constraint -
-    /// and would also hand back a new Id, orphaning any UI row already keyed on the old one.</summary>
+    /// <summary>Re-arms an existing row for a resume/overwrite restart: same <paramref name="id"/>,
+    /// <c>CreatedAt</c>, and <c>QueueOrder</c> as before (the row's identity, history, and queue
+    /// position don't change just because the process restarted), but state/size/progress reset
+    /// to reflect the fresh attempt. Used instead of <see cref="InsertAsync"/> when
+    /// <see cref="DownloadManager.AddDownloadAsync"/> resolves a conflict via Resume or Overwrite,
+    /// since the conflicting row (same Uri + DestinationPath) is still present and a second
+    /// INSERT would trip the UNIQUE constraint - and would also hand back a new Id, orphaning any
+    /// UI row already keyed on the old one.</summary>
     public async Task<DownloadRecord> ResetForRestartAsync(Guid id, DownloadState state, long totalBytes)
     {
         using var connection = OpenConnection();
@@ -141,6 +175,35 @@ public sealed class DownloadRepository(string dbPath)
             });
     }
 
+    /// <summary>Updates only <c>State</c> - unlike <see cref="ResetForRestartAsync"/>, leaves
+    /// <c>TotalBytes</c>/<c>BytesDownloaded</c>/<c>QueueOrder</c> untouched. Used to move a row
+    /// between <see cref="DownloadState.Queued"/> and back without disturbing progress already
+    /// recorded for it (e.g. re-queuing an interrupted download that was previously
+    /// <see cref="DownloadState.Running"/>, which should resume from its <c>.avadm</c> footer
+    /// rather than from 0) or its place in line.</summary>
+    public async Task UpdateStateAsync(Guid id, DownloadState state)
+    {
+        using var connection = OpenConnection();
+        await connection.ExecuteAsync(
+            "UPDATE Downloads SET State = @State, LastModifiedAt = @LastModifiedAt WHERE Id = @Id",
+            new
+            {
+                Id = id.ToString(),
+                State = (int)state,
+                LastModifiedAt = DateTime.UtcNow.ToString("O"),
+            });
+    }
+
+    /// <summary>Explicit user reorder - the only thing, besides <see cref="InsertAsync"/> assigning
+    /// the initial value, that ever changes a row's <c>QueueOrder</c>.</summary>
+    public async Task UpdateQueueOrderAsync(Guid id, int queueOrder)
+    {
+        using var connection = OpenConnection();
+        await connection.ExecuteAsync(
+            "UPDATE Downloads SET QueueOrder = @QueueOrder WHERE Id = @Id",
+            new { Id = id.ToString(), QueueOrder = queueOrder });
+    }
+
     public async Task<IReadOnlyList<DownloadRecord>> GetAllAsync()
     {
         using var connection = OpenConnection();
@@ -176,6 +239,7 @@ public sealed class DownloadRepository(string dbPath)
         public long BytesDownloaded { get; init; }
         public string CreatedAt { get; init; } = "";
         public string? LastModifiedAt { get; init; }
+        public int QueueOrder { get; init; }
 
         public DownloadRecord ToRecord() => new(
             Guid.Parse(Id),
@@ -185,6 +249,7 @@ public sealed class DownloadRepository(string dbPath)
             TotalBytes,
             BytesDownloaded,
             DateTime.Parse(CreatedAt).ToUniversalTime(),
-            LastModifiedAt is null ? null : DateTime.Parse(LastModifiedAt).ToUniversalTime());
+            LastModifiedAt is null ? null : DateTime.Parse(LastModifiedAt).ToUniversalTime(),
+            QueueOrder);
     }
 }

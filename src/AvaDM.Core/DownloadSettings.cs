@@ -78,6 +78,30 @@ public sealed class DownloadSettings
     /// </summary>
     public int DefaultAutoRetryAttempts { get; set; } = 10;
 
+    /// <summary>
+    /// Maximum number of downloads <see cref="DownloadManager"/> runs at once. A download added
+    /// (or resumed) beyond this limit is persisted as <see cref="DownloadState.Queued"/> instead
+    /// of starting immediately, and starts automatically once a slot frees - see
+    /// <see cref="DownloadManager"/>'s queue admission logic. A running download that is paused
+    /// also frees its slot for the next queued download; a paused download only resumes into a
+    /// slot itself once one is available again.
+    /// </summary>
+    public int DefaultMaxConcurrentDownloads { get; set; } = 10;
+
+    /// <summary>
+    /// Whether <see cref="DownloadManager"/> automatically resumes every download left
+    /// <see cref="DownloadState.Pending"/>, <see cref="DownloadState.Running"/>,
+    /// <see cref="DownloadState.Paused"/>, or <see cref="DownloadState.Queued"/> by a previous
+    /// process - i.e. every row that would otherwise show as the UI's derived "Interrupted"
+    /// status - the next time a <see cref="DownloadManager"/> is constructed over the same
+    /// repository. Defaults to <c>false</c>: resuming network/disk activity on launch without
+    /// asking is not something to do silently, so this is opt-in. Whether on or off, the user can
+    /// always resume everything at once via <see cref="DownloadManager.ResumeAllInterruptedAsync"/>
+    /// (the manual "Resume downloads" action), which this setting simply also triggers
+    /// automatically at startup.
+    /// </summary>
+    public bool AutoResumeDownloadsOnStartup { get; set; }
+
     /// <summary>Resolves <see cref="RepositoryPath"/> to a concrete file path, creating the
     /// containing directory if it doesn't exist yet. Called by <see cref="DownloadManager"/>
     /// when it opens the repository.</summary>

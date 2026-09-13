@@ -29,6 +29,7 @@ public enum DownloadDoubleClickAction
 public enum DownloadDisplayStatus
 {
     Pending,
+    Queued,
     Running,
     Paused,
     Completed,
@@ -102,6 +103,8 @@ public sealed partial class DownloadRowViewModel : ViewModelBase
     [NotifyCanExecuteChangedFor(nameof(ResumeCommand))]
     [NotifyCanExecuteChangedFor(nameof(CancelCommand))]
     [NotifyCanExecuteChangedFor(nameof(OpenDownloadCommand))]
+    [NotifyCanExecuteChangedFor(nameof(MoveUpInQueueCommand))]
+    [NotifyCanExecuteChangedFor(nameof(MoveDownInQueueCommand))]
     private DownloadState _state;
 
     [ObservableProperty]
@@ -322,13 +325,21 @@ public sealed partial class DownloadRowViewModel : ViewModelBase
         : "-";
 
     public DownloadDisplayStatus DisplayStatus =>
+        // Queued is deliberately excluded from the Interrupted check below: a queued row has no
+        // live handle by design (it hasn't started yet), which is not the same thing as a
+        // Running/Paused/Pending row that lost its handle to a process restart.
         !HasActiveHandle && State is DownloadState.Pending or DownloadState.Running or DownloadState.Paused
             ? DownloadDisplayStatus.Interrupted
             : State switch
             {
                 DownloadState.Pending => DownloadDisplayStatus.Pending,
+                DownloadState.Queued => DownloadDisplayStatus.Queued,
                 DownloadState.Running => DownloadDisplayStatus.Running,
                 DownloadState.Paused => DownloadDisplayStatus.Paused,
+                // Shown identically to a normal Paused row - the underlying state is kept
+                // distinct only so admission can skip it (see DownloadState.QueuedPaused), not
+                // because it should look different to the user.
+                DownloadState.QueuedPaused => DownloadDisplayStatus.Paused,
                 DownloadState.Completed => DownloadDisplayStatus.Completed,
                 DownloadState.Failed => DownloadDisplayStatus.Failed,
                 DownloadState.Cancelled => DownloadDisplayStatus.Cancelled,
@@ -351,12 +362,25 @@ public sealed partial class DownloadRowViewModel : ViewModelBase
 
     public bool IsActive => HasActiveHandle && State is DownloadState.Running or DownloadState.Paused or DownloadState.Pending;
 
-    public bool CanPause => HasActiveHandle && State == DownloadState.Running;
+    // A Queued row has no live handle to pause (nothing has started transferring) but can still
+    // be held back from admission - see DownloadManager.PauseQueuedDownloadAsync.
+    public bool CanPause => (HasActiveHandle && State == DownloadState.Running) || State == DownloadState.Queued;
 
     public bool CanResume => (HasActiveHandle && State == DownloadState.Paused)
+        || State == DownloadState.QueuedPaused
         || DisplayStatus is DownloadDisplayStatus.Interrupted or DownloadDisplayStatus.Failed;
 
-    public bool CanCancel => HasActiveHandle && State is DownloadState.Running or DownloadState.Paused or DownloadState.Pending;
+    // A Queued (or QueuedPaused) row has no live handle (it hasn't started yet) but is still
+    // cancellable - DownloadManager.CancelDownloadAsync persists Cancelled directly for a
+    // handle-less row.
+    public bool CanCancel => State is DownloadState.Queued or DownloadState.QueuedPaused
+        || (HasActiveHandle && State is DownloadState.Running or DownloadState.Paused or DownloadState.Pending);
+
+    /// <summary>Whether the "Move up/down in queue" context menu actions apply to this row.
+    /// Both commands are safe to invoke even at either end of the queue -
+    /// <see cref="DownloadManager.MoveQueuedDownloadUpAsync"/>/<c>DownAsync</c> just no-op there -
+    /// so this only needs to gate on the row actually being queued at all.</summary>
+    public bool CanReorderInQueue => State == DownloadState.Queued;
 
     /// <summary>Whether double-clicking this row (or its name) opens anything at all - only
     /// once the download has actually finished and the final file exists at
@@ -482,21 +506,33 @@ public sealed partial class DownloadRowViewModel : ViewModelBase
     }
 
     [RelayCommand(CanExecute = nameof(CanPause))]
-    private void Pause() => _handle?.Pause();
+    private async Task Pause()
+    {
+        if (_handle is not null)
+        {
+            _handle.Pause();
+            return;
+        }
+
+        // Queued, no handle yet - hold it back from admission until explicitly resumed.
+        if (await _downloadManager.PauseQueuedDownloadAsync(Id))
+            State = DownloadState.QueuedPaused;
+    }
 
     [RelayCommand(CanExecute = nameof(CanResume))]
     private async Task Resume()
     {
-        if (_handle is not null && State == DownloadState.Paused)
-        {
-            _handle.Resume();
-            return;
-        }
-
-        // Interrupted (no live handle yet) or Failed (a stale handle from the failed attempt,
-        // which Resume() on the handle itself can't restart - only a Paused handle can). Either
-        // way, re-add it, which falls through to Downloader's .avadm-footer resume logic and
-        // picks up from whatever was already written to disk instead of starting over.
+        // Deliberately never calls _handle.Resume() directly, even for a Paused handle that
+        // could technically just be un-paused in place: pausing frees this download's
+        // concurrency slot for a queued download to start (see #25's design), so resuming has to
+        // compete for a slot again through DownloadManager's admission gate rather than resuming
+        // unconditionally - otherwise a paused-then-resumed download and whatever queued download
+        // took its freed slot end up running together, over the configured limit.
+        //
+        // Interrupted (no live handle) or Failed (a stale handle from the failed attempt, which
+        // can't itself be un-paused) go through the exact same path. Either way, re-adding it
+        // falls through to Downloader's .avadm-footer resume logic and picks up from whatever was
+        // already written to disk instead of starting over.
         if (_handle is not null)
             Detach();
         LastError = null;
@@ -504,12 +540,25 @@ public sealed partial class DownloadRowViewModel : ViewModelBase
         var result = await _downloadManager.ResumeDownloadAsync(Id);
         if (result is { Success: true, Handle: not null })
             AttachHandle(result.Handle);
+        else if (result.Success)
+            State = DownloadState.Queued; // admission gate had no free slot - queued instead
         else
             LastError = result.Error ?? "Resume failed.";
     }
 
     [RelayCommand(CanExecute = nameof(CanCancel))]
     private void Cancel() => _onCancelRequested(this);
+
+    /// <summary>Context-menu "Move up in queue" - swaps this row's QueueOrder with whichever
+    /// queued download is currently ahead of it. A no-op (from DownloadManager) if this row is
+    /// already at the front.</summary>
+    [RelayCommand(CanExecute = nameof(CanReorderInQueue))]
+    private Task MoveUpInQueue() => _downloadManager.MoveQueuedDownloadUpAsync(Id);
+
+    /// <summary>Context-menu "Move down in queue" - the same as <see cref="MoveUpInQueue"/>, one
+    /// place later instead.</summary>
+    [RelayCommand(CanExecute = nameof(CanReorderInQueue))]
+    private Task MoveDownInQueue() => _downloadManager.MoveQueuedDownloadDownAsync(Id);
 
     partial void OnSpeedLimitBytesPerSecondChanged(long? value) => _handle?.SetSpeedLimit(value);
 
