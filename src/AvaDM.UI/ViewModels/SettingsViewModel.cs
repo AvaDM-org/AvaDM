@@ -212,7 +212,7 @@ public sealed partial class SettingsViewModel : ViewModelBase
         _downloadDirectory = settings.DefaultDownloadDirectory;
         _chunkCount = settings.DefaultChunkCount;
         _speedLimitBytesPerSecond = settings.DefaultSpeedLimitBytesPerSecond;
-        _repositoryPathInput = settings.RepositoryPath ?? string.Empty;
+        _repositoryPathInput = settings.GetResolvedRepositoryPath();
         _maxRetryAttempts = settings.DefaultMaxRetryAttempts;
         _retryBaseDelaySecondsInput = settings.DefaultRetryBaseDelay.TotalSeconds.ToString("0.##");
         _inactivityTimeoutSecondsInput = settings.DefaultInactivityTimeout.TotalSeconds.ToString("0.##");
@@ -272,8 +272,6 @@ public sealed partial class SettingsViewModel : ViewModelBase
         if (value is null)
             MaxConcurrentDownloads = s_factoryDefaults.DefaultMaxConcurrentDownloads;
     }
-
-    public string ResolvedRepositoryPathHint => _settings.GetResolvedRepositoryPath();
 
     public string LogDirectoryHint => AppLogging.LogDirectory;
 
@@ -606,9 +604,13 @@ public sealed partial class SettingsViewModel : ViewModelBase
         _settings.DefaultDownloadDirectory = DownloadDirectory.Trim();
         _settings.DefaultChunkCount = ChunkCount ?? s_factoryDefaults.DefaultChunkCount;
         _settings.DefaultSpeedLimitBytesPerSecond = SpeedLimitBytesPerSecond;
-        _settings.RepositoryPath = string.IsNullOrWhiteSpace(RepositoryPathInput)
-            ? null
-            : RepositoryPathInput.Trim();
+        // The box shows the effective path as a real value; leaving it at (or clearing it to) the
+        // default keeps RepositoryPath unset rather than pinning the default path explicitly.
+        var repositoryPath = RepositoryPathInput?.Trim();
+        _settings.RepositoryPath = string.IsNullOrEmpty(repositoryPath)
+            || repositoryPath == s_factoryDefaults.GetResolvedRepositoryPath()
+                ? null
+                : repositoryPath;
         _settings.DefaultMaxRetryAttempts = MaxRetryAttempts ?? s_factoryDefaults.DefaultMaxRetryAttempts;
         _settings.DefaultRetryBaseDelay = TimeSpan.FromSeconds(retryBaseDelaySeconds);
         _settings.DefaultInactivityTimeout = TimeSpan.FromSeconds(inactivityTimeoutSeconds);

@@ -28,7 +28,9 @@ fail fast if its version has no section here**. Add the entry before pushing the
 - **Settings weren't remembered between sessions.** ([#35](https://github.com/AvaDM-org/AvaDM/issues/35))
   Download folder, connections per download, speed limit, retries, retry delay, inactivity timeout,
   auto-retry attempts and **Max concurrent downloads** reset to their defaults every launch. Pressing
-  **Save** on the Settings page now stores them, and they're restored at startup.
+  **Save** on the Settings page now stores them, and they're restored at startup. The repository path
+  stays per-session, and its box now shows the actual path as an editable value instead of a
+  placeholder.
 - **The window froze while several downloads were running.** The per-connection progress bar
   rebuilt all of its segment controls on every progress update, which pinned the UI thread once a
   batch of downloads (e.g. from a bulk import) was active. It now only rebuilds when the
