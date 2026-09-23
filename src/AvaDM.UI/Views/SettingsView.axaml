@@ -157,8 +157,7 @@
                                    Foreground="{DynamicResource TextSecondaryBrush}"
                                    VerticalAlignment="Center" />
                         <TextBox Grid.Column="1"
-                                 Text="{Binding RepositoryPathInput, Mode=TwoWay}"
-                                 PlaceholderText="{Binding ResolvedRepositoryPathHint}" />
+                                 Text="{Binding RepositoryPathInput, Mode=TwoWay}" />
                     </Grid>
 
                     <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="{StaticResource SpaceSm}">
