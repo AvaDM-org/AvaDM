@@ -23,6 +23,13 @@ fail fast if its version has no section here**. Add the entry before pushing the
   - Links that can't be added (e.g. already in your downloads for that folder) stay in the list with
     the reason, so you can untick them or change the folder and retry.
 
+### Fixed
+
+- **The window froze while several downloads were running.** The per-connection progress bar
+  rebuilt all of its segment controls on every progress update, which pinned the UI thread once a
+  batch of downloads (e.g. from a bulk import) was active. It now only rebuilds when the
+  connection layout changes.
+
 ## [3.0.0] - 2026-09-14
 
 ### Added
