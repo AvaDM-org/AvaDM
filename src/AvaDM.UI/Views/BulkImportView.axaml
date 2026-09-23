@@ -1,0 +1,78 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:vm="using:AvaDM.UI.ViewModels"
+             mc:Ignorable="d" d:DesignWidth="520" d:DesignHeight="520"
+             x:Class="AvaDM.UI.Views.BulkImportView"
+             x:DataType="vm:BulkImportViewModel">
+    <Border Background="{DynamicResource SurfaceBrush}"
+            BorderBrush="{DynamicResource BorderBrush}"
+            BorderThickness="1"
+            CornerRadius="{StaticResource RadiusCard}"
+            Padding="{StaticResource PanelPadding}"
+            Width="520"
+            IsEnabled="{Binding !IsBusy}">
+        <StackPanel Spacing="{StaticResource SpaceMd}">
+
+            <TextBlock Text="Import downloads"
+                       FontSize="{StaticResource HeadingSmFontSize}"
+                       FontWeight="{StaticResource HeadingSmFontWeight}"
+                       Foreground="{DynamicResource TextPrimaryBrush}" />
+
+            <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="{StaticResource SpaceSm}">
+                <TextBlock Grid.Column="0" Text="{Binding SelectionSummary}" VerticalAlignment="Center"
+                           FontSize="{StaticResource BodyMdFontSize}"
+                           Foreground="{DynamicResource TextSecondaryBrush}" />
+                <Button Grid.Column="1" Classes="secondary" Content="Select all" Command="{Binding SelectAllCommand}" />
+                <Button Grid.Column="2" Classes="secondary" Content="Select none" Command="{Binding SelectNoneCommand}" />
+            </Grid>
+
+            <Border Background="{DynamicResource SurfaceAltBrush}"
+                    CornerRadius="{StaticResource RadiusControl}"
+                    Padding="{StaticResource RowPadding}"
+                    Height="240">
+                <ScrollViewer>
+                    <ItemsControl ItemsSource="{Binding Items}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate x:DataType="vm:BulkImportItemViewModel">
+                                <StackPanel Margin="0,2">
+                                    <CheckBox IsChecked="{Binding IsSelected}">
+                                        <TextBlock Text="{Binding Url}"
+                                                   FontSize="{StaticResource BodyMdFontSize}"
+                                                   Foreground="{DynamicResource TextPrimaryBrush}"
+                                                   TextTrimming="CharacterEllipsis"
+                                                   ToolTip.Tip="{Binding Url}" />
+                                    </CheckBox>
+                                    <TextBlock Text="{Binding Error}" IsVisible="{Binding HasError}"
+                                               Margin="28,0,0,0"
+                                               FontSize="{StaticResource BodyMdFontSize}"
+                                               Foreground="{DynamicResource DangerBrush}"
+                                               TextWrapping="Wrap" />
+                                </StackPanel>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </ScrollViewer>
+            </Border>
+
+            <StackPanel Spacing="{StaticResource SpaceXs}">
+                <TextBlock Text="Save to" FontSize="{StaticResource LabelSmFontSize}" Foreground="{DynamicResource TextSecondaryBrush}" />
+                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="{StaticResource SpaceSm}">
+                    <TextBox Grid.Column="0" Text="{Binding SaveDirectory}" />
+                    <Button Grid.Column="1" Classes="secondary" Content="Browse..." Click="OnBrowseClick" />
+                </Grid>
+            </StackPanel>
+
+            <TextBlock Text="{Binding ErrorMessage}" IsVisible="{Binding HasError}"
+                       FontSize="{StaticResource BodyMdFontSize}" Foreground="{DynamicResource DangerBrush}"
+                       TextWrapping="Wrap" />
+
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="{StaticResource SpaceSm}">
+                <Button Classes="secondary" Content="Cancel" Command="{Binding CancelCommand}" />
+                <Button Classes="primary" Content="{Binding StartButtonText}" Command="{Binding StartCommand}" />
+            </StackPanel>
+
+        </StackPanel>
+    </Border>
+</UserControl>

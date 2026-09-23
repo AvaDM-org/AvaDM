@@ -9,6 +9,27 @@ Each released version below has a matching `vX.Y.Z` git tag. `.github/workflows/
 the section for the tag it is building and uses it as the GitHub Release notes, so **a release will
 fail fast if its version has no section here**. Add the entry before pushing the tag.
 
+## [3.1.0] - Unreleased
+
+### Added
+
+- **Bulk import of download links.** ([#32](https://github.com/AvaDM-org/AvaDM/issues/32))
+  - The advanced-add dialog has two new buttons, **"Import list from clipboard"** and **"Import
+    list from file"**. Each reads one link per line (blank lines and `#` comments are ignored,
+    duplicates collapse) and opens an import dialog listing the links found, each with a checkbox.
+  - The dialog has an editable **Save to** folder (pre-filled with the default download folder, or
+    whatever was typed in the advanced dialog) with a Browse button. **Start** adds every ticked link
+    the same way the quick-add box does, so the download queue decides which start now and which wait.
+  - Links that can't be added (e.g. already in your downloads for that folder) stay in the list with
+    the reason, so you can untick them or change the folder and retry.
+
+### Fixed
+
+- **The window froze while several downloads were running.** The per-connection progress bar
+  rebuilt all of its segment controls on every progress update, which pinned the UI thread once a
+  batch of downloads (e.g. from a bulk import) was active. It now only rebuilds when the
+  connection layout changes.
+
 ## [3.0.0] - 2026-09-14
 
 ### Added

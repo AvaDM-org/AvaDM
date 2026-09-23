@@ -230,6 +230,13 @@
             </Border>
         </Border>
 
+        <Border IsVisible="{Binding IsBulkImportOpen}"
+                Background="#99000000">
+            <Border HorizontalAlignment="Center" VerticalAlignment="Center">
+                <views:BulkImportView DataContext="{Binding ActiveBulkImport}" />
+            </Border>
+        </Border>
+
         <Border IsVisible="{Binding IsRemoveConfirmationOpen}"
                 Background="#99000000">
             <Border HorizontalAlignment="Center" VerticalAlignment="Center">

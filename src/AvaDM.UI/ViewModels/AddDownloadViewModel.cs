@@ -1,6 +1,7 @@
 using System.IO;
 using AvaDM.Core;
 using AvaDM.UI.Converters;
+using AvaDM.UI.Services;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 
@@ -21,6 +22,7 @@ public sealed partial class AddDownloadViewModel : ViewModelBase
     private readonly DownloadSettings _settings;
     private readonly Action<DownloadRecord, DownloadHandle?> _onSubmitted;
     private readonly Action _onCancelled;
+    private readonly Action<IReadOnlyList<Uri>, string?> _onImportRequested;
 
     /// <summary>The file name last auto-derived from the URL. While <see cref="FileName"/> still
     /// equals this (or is empty), a URL edit is free to replace it; once the user types their own
@@ -105,12 +107,30 @@ public sealed partial class AddDownloadViewModel : ViewModelBase
         DownloadManager downloadManager,
         DownloadSettings settings,
         Action<DownloadRecord, DownloadHandle?> onSubmitted,
-        Action onCancelled)
+        Action onCancelled,
+        Action<IReadOnlyList<Uri>, string?> onImportRequested)
     {
         _downloadManager = downloadManager;
         _settings = settings;
         _onSubmitted = onSubmitted;
         _onCancelled = onCancelled;
+        _onImportRequested = onImportRequested;
+    }
+
+    /// <summary>Called by the view with the text of the clipboard or a chosen file (only the view
+    /// has the <c>TopLevel</c> for either). Hands the links found in it, plus the folder typed in
+    /// "Save to" if any, to the bulk-import dialog; with no links, stays here and says so.</summary>
+    public void ImportLinks(string? text, string sourceName)
+    {
+        var links = BulkImportParser.Parse(text);
+        if (links.Count == 0)
+        {
+            ErrorMessage = $"No download links found in the {sourceName}. Expected one http(s) link per line.";
+            return;
+        }
+
+        ErrorMessage = null;
+        _onImportRequested(links, string.IsNullOrWhiteSpace(SaveDirectory) ? null : SaveDirectory.Trim());
     }
 
     partial void OnUrlChanged(string value)

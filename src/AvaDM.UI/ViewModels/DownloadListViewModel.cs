@@ -111,6 +111,14 @@ public sealed partial class DownloadListViewModel : ViewModelBase, IDisposable
 
     public bool IsAddDownloadOpen => ActiveAddDownload is not null;
 
+    /// <summary>Non-null while the bulk-import overlay is open (see <see cref="OnImportRequested"/>).
+    /// <see cref="IsBulkImportOpen"/> drives its visibility.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsBulkImportOpen))]
+    private BulkImportViewModel? _activeBulkImport;
+
+    public bool IsBulkImportOpen => ActiveBulkImport is not null;
+
     /// <summary>Non-null while the Remove confirmation overlay is open; a fresh instance is
     /// created each time a row's Remove command runs. <see cref="IsRemoveConfirmationOpen"/>
     /// drives the overlay's visibility in AXAML.</summary>
@@ -228,7 +236,7 @@ public sealed partial class DownloadListViewModel : ViewModelBase, IDisposable
     /// (submitted or cancelled) via the two callbacks below.</summary>
     [RelayCommand]
     private void AddDownload() =>
-        ActiveAddDownload = new AddDownloadViewModel(_downloadManager, _settings, OnAddDownloadSubmitted, OnAddDownloadCancelled);
+        ActiveAddDownload = new AddDownloadViewModel(_downloadManager, _settings, OnAddDownloadSubmitted, OnAddDownloadCancelled, OnImportRequested);
 
     /// <summary>Top bar quick-add: start a download from <see cref="QuickAddText"/> using the
     /// defaults (default folder, default connection count, no speed limit). Runs the same
@@ -242,7 +250,7 @@ public sealed partial class DownloadListViewModel : ViewModelBase, IDisposable
         if (text.Length == 0 || ActiveAddDownload is not null)
             return;
 
-        var add = new AddDownloadViewModel(_downloadManager, _settings, OnAddDownloadSubmitted, OnAddDownloadCancelled)
+        var add = new AddDownloadViewModel(_downloadManager, _settings, OnAddDownloadSubmitted, OnAddDownloadCancelled, OnImportRequested)
         {
             Url = text,
         };
@@ -262,6 +270,20 @@ public sealed partial class DownloadListViewModel : ViewModelBase, IDisposable
     }
 
     private void OnAddDownloadCancelled() => ActiveAddDownload = null;
+
+    /// <summary>The advanced dialog's import buttons found links: swap it for the bulk-import
+    /// dialog. Its folder starts as whatever was typed in "Save to", else the default download
+    /// folder.</summary>
+    private void OnImportRequested(IReadOnlyList<Uri> links, string? saveDirectory)
+    {
+        ActiveAddDownload = null;
+        ActiveBulkImport = new BulkImportViewModel(
+            _downloadManager,
+            links,
+            saveDirectory ?? _settings.DefaultDownloadDirectory,
+            (record, handle) => AddOrUpdateRow(record, handle),
+            () => ActiveBulkImport = null);
+    }
 
     private void RequestRemove(DownloadRowViewModel row) =>
         ActiveRemoveConfirmation = new RemoveConfirmationViewModel(
