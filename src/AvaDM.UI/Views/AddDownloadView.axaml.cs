@@ -2,7 +2,6 @@ using System;
 using System.IO;
 using System.Linq;
 using Avalonia.Controls;
-using Avalonia.Input;
 using Avalonia.Platform.Storage;
 using Avalonia.Input.Platform;
 using Avalonia.Interactivity;
@@ -12,14 +11,9 @@ namespace AvaDM.UI.Views;
 
 public partial class AddDownloadView : UserControl
 {
-    private IPointer? _lastPointer;
-
     public AddDownloadView()
     {
         InitializeComponent();
-
-        // The Click event doesn't expose the pointer, so remember it from the press.
-        AddHandler(PointerPressedEvent, (_, e) => _lastPointer = e.Pointer, RoutingStrategies.Tunnel);
     }
 
     private async void OnBrowseClick(object? sender, RoutedEventArgs e)
@@ -72,11 +66,6 @@ public partial class AddDownloadView : UserControl
         var storage = TopLevel.GetTopLevel(this)?.StorageProvider;
         if (storage is null)
             return;
-
-        // The system file picker swallows the mouse release, so the button that opened it would keep
-        // pointer capture. A successful import replaces this whole dialog, leaving that capture on a
-        // control that's no longer shown and dead-locking every click and scroll in the main window.
-        _lastPointer?.Capture(null);
 
         var files = await storage.OpenFilePickerAsync(new FilePickerOpenOptions
         {
