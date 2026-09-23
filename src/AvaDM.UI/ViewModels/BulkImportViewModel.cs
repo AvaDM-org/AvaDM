@@ -34,7 +34,8 @@ public sealed partial class BulkImportItemViewModel : ObservableObject
 ///
 /// Links that were added leave the list; ones that couldn't be (typically an existing
 /// <c>(URL, destination)</c> download) stay with an error so the user can untick them or change the
-/// folder and try again. The dialog closes once nothing is left to add.
+/// folder and try again. The dialog closes once every ticked link has been added; unticked links
+/// are simply dropped.
 /// </summary>
 public sealed partial class BulkImportViewModel : ViewModelBase
 {
@@ -156,7 +157,7 @@ public sealed partial class BulkImportViewModel : ViewModelBase
 
             SelectionRevision++;
 
-            if (failures == 0 && Items.Count == 0)
+            if (failures == 0)
                 _onClosed();
             else if (failures > 0)
                 ErrorMessage = $"{failures} link{(failures == 1 ? " was" : "s were")} not added. Untick {(failures == 1 ? "it" : "them")} or change the folder and try again.";
