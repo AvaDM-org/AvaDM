@@ -56,6 +56,11 @@
                 </Grid>
             </StackPanel>
 
+            <StackPanel Orientation="Horizontal" Spacing="{StaticResource SpaceSm}">
+                <Button Classes="secondary" Content="Import list from clipboard" Click="OnImportClipboardClick" />
+                <Button Classes="secondary" Content="Import list from file" Click="OnImportFileClick" />
+            </StackPanel>
+
             <StackPanel Spacing="{StaticResource SpaceXs}">
                 <CheckBox Content="Schedule for later" IsChecked="{Binding IsScheduleEnabled}" />
                 <!-- Stacked, not side-by-side: TimePicker's Fluent theme MinWidth (242) is wider
