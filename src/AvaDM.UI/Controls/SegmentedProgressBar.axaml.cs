@@ -68,10 +68,14 @@ public partial class SegmentedProgressBar : UserControl
 
             Rebuild();
         }
-        else if (change.Property == IsIndeterminateProperty || change.Property == ValueProperty)
+        else if (change.Property == IsIndeterminateProperty)
         {
             Rebuild();
         }
+        // ValueProperty deliberately doesn't rebuild: the fallback bar is bound to it, and each
+        // per-connection segment is bound to its own chunk, so a progress tick needs no new controls.
+        // Rebuilding here recreated every segment of every running row on every tick and pinned the UI
+        // thread once a batch of downloads was running.
     }
 
     private void OnChunksCollectionChanged(object? sender, NotifyCollectionChangedEventArgs e) => Rebuild();
