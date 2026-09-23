@@ -55,6 +55,7 @@ public partial class App : Application
 
             var (closeToTray, doubleClickAction, autoUpdateEnabled, autoResumeDownloadsOnStartup) =
                 LoadStoredPreferences(uiPreferences);
+            DownloadSettingsStore.LoadInto(uiPreferences, settings);
 
             // Must be applied before DownloadManager is constructed below: it reads this off the
             // same DownloadSettings instance the first time it initializes (see

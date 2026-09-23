@@ -626,6 +626,16 @@ public sealed partial class SettingsViewModel : ViewModelBase
         // limit was lowered or unchanged, or if nothing is queued.
         await _downloadManager.AdmitQueuedDownloadsAsync();
 
-        StatusMessage = "Settings saved.";
+        // Persist so the values survive a restart (issue #35). The settings above are already
+        // applied for this session even if this fails.
+        try
+        {
+            await DownloadSettingsStore.SaveAsync(_uiPreferences, _settings);
+            StatusMessage = "Settings saved.";
+        }
+        catch (Exception ex)
+        {
+            ErrorMessage = $"Settings applied, but couldn't be saved for next launch: {ex.Message}";
+        }
     }
 }
